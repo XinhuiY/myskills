@@ -1,5 +1,5 @@
 ---
-name: spring-screen-bridge
+name: replit-cc-figma-bridge
 description: Build, register, and export RingCentral Spring UI screens. Each screen stays addressable as a single Flow/Step across three surfaces — a FAB menu item at runtime, a branch in the host source component, and a Figma frame — kept in lockstep via a SCREENS.md mapping. Use for any task that builds a Spring UI screen, adds one to the in-app picker, or exports one to Figma.
 ---
 
