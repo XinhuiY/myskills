@@ -6,6 +6,28 @@ For the *what to write* (Spring class structure, full token catalogues, Tailwind
 
 If the user's brief is text-only ("build a sign-in page that…") with no Figma reference, you don't need this module — go straight to `build-in-replit.md`.
 
+## Theme handling (Figma color mode ↔ Spring theme)
+
+Before phase 1, identify the Figma frame's **color mode** (visible in the Figma UI; also surfaced in the `getDesignContext` response and any screenshot tooling). Map it to the Spring theme and set the FAB's default accordingly — do not leave it on the scaffold's default if Figma is in a different mode.
+
+`@ringcentral/spring-theme` exports exactly four themes. There is **no** `suiJunoDark`; never invent or alias one.
+
+| Figma color mode | FAB option (`ThemeOption`) | Spring export    |
+| ---------------- | -------------------------- | ---------------- |
+| Light            | `light`                    | `suiLight`       |
+| Dark             | `dark`                     | `suiDark`        |
+| High Contrast    | `highContrast`             | `suiHighContrast`|
+| Juno Light       | `junoLight`                | `suiJunoLight`   |
+| Juno Dark        | (unsupported)              | — surface to user; do not alias to `suiDark` |
+
+Setting the default in the scaffold:
+
+1. In `src/presentation-config/PresentationConfigContext.tsx`, change the initial `useState<ThemeOption>(...)` to the option matching Figma. The template ships `"light"`; bump it to `"junoLight"` (or whichever matches) per artifact.
+2. The FAB template already lists all four options. If a project's older copy is missing `Juno Light`, sync it from `templates/PresentationConfigFab.tsx` — do not silently drop options.
+3. If the Figma frame's mode is Juno Dark, stop and tell the user: "Spring doesn't ship a `suiJunoDark` theme. Options: (a) use `suiDark` and accept slight token drift, (b) ship without juno-dark, (c) wait for Spring to publish one." Do not pick for them.
+
+This rule lives in repo memory (`replit.md` "Theme handling" section). Keep both in sync when the Spring theme catalogue changes.
+
 ## The six phases (do not reorder)
 
 ### Phase 1 — Fetch & inspect, never paraphrase

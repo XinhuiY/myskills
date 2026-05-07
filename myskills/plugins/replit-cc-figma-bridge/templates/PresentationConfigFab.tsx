@@ -28,7 +28,11 @@ export function PresentationConfigFab() {
 
   const handleClose = () => setOpen(false);
 
+  // List every Spring-supported theme. `@ringcentral/spring-theme` ships
+  // four themes total; juno dark is not exported, so it is intentionally
+  // absent. Do not add a fake/aliased "Juno Dark" option.
   const themeItems: { label: string; value: ThemeOption }[] = [
+    { label: "Juno Light", value: "junoLight" },
     { label: "Light", value: "light" },
     { label: "Dark", value: "dark" },
     { label: "High Contrast", value: "highContrast" },
