@@ -41,4 +41,4 @@ When exporting to Figma, upload each asset with `upload_assets` and apply the re
 
 ## Adding a new screen
 
-See `.agents/skills/spring-screen-bridge/modules/screen-picker.md` (Operation 2) for the canonical procedure. In short: append `{ flow, step }` to `SCREENS` in `src/screens.ts`, add a branch in the renderer with a `// SCREEN:` anchor comment, append a row to the table above. If the flow doesn't exist yet, just use a new flow name — the FAB auto-creates a new `MenuHeader` group for it.
+See `.agents/skills/replit-cc-figma-bridge/modules/screen-picker.md` (Operation 2) for the canonical procedure. In short: append `{ flow, step }` to `SCREENS` in `src/screens.ts`, add a branch in the renderer with a `// SCREEN:` anchor comment, append a row to the table above. If the flow doesn't exist yet, just use a new flow name — the FAB auto-creates a new `MenuHeader` group for it.

@@ -4,6 +4,23 @@ This file documents the **persistent Figma keys** for the RingCentral Spring Des
 
 Use this file to skip the discovery phase when building Figma screens from Spring UI React source code.
 
+## Prerequisite — where this module runs
+
+The snippets below (`figma.importStyleByKeyAsync`, `figma.importComponentSetByKeyAsync`, `instance.setProperties`, etc.) are **Figma plugin API calls**. They require an MCP server that exposes a Figma plugin runtime — typically the `use_figma` tool family available in **Claude Code** with the official Figma Desktop MCP, or an equivalent plugin-API bridge.
+
+**The Replit-side Figma MCP exposed in this workspace does NOT include a plugin runtime.** It can read design context, take screenshots, upload assets, create files, and manage Code Connect mappings (`mcpFigma_getDesignContext`, `mcpFigma_getScreenshot`, `mcpFigma_uploadAssets`, `mcpFigma_createNewFile`, `mcpFigma_addCodeConnectMap`, `mcpFigma_sendCodeConnectMappings`) — but it cannot execute the `figma.*` plugin calls that build the frame.
+
+So the export workflow lives in two places:
+
+| Step                                           | Tool                                            | Where it runs |
+| ---------------------------------------------- | ----------------------------------------------- | ------------- |
+| 1. Read source: open the `.tsx` and `SCREENS.md` | filesystem                                       | anywhere |
+| 2. Upload static assets, get image hashes      | `mcpFigma_uploadAssets`                          | Replit or Claude Code |
+| 3. Construct the Figma frame using the keys below | Figma plugin API (`figma.importStyleByKeyAsync` etc.) | Claude Code (plugin MCP required) |
+| 4. (Optional) Bind the new frame back to source via Code Connect | `mcpFigma_addCodeConnectMap` + `sendCodeConnectMappings` | Replit or Claude Code |
+
+If you're inside Replit and need to export, hand the prompt to Claude Code (with the Figma plugin MCP attached), or use Code Connect alone to associate an existing Figma component with the source file. Trying to run the snippets below from Replit will fail with "figma is not defined" or equivalent.
+
 ---
 
 ## How to use
@@ -51,7 +68,44 @@ instance.setProperties({ "Text#45:0": "Submit" });
 2. For each **text node**: look up the `typography-*` class → import text style → set `textStyleId`.
 3. For each **background/fill**: look up the `bg-neutral-*` or `text-neutral-*` class → import variable → bind with `setBoundVariableForPaint`.
 4. For each **Spring UI component**: look up the component set key → import → create instance → use `setProperties()` to override text/variants.
-5. The font family is always **Inter** — load with `figma.loadFontAsync({ family: "Inter", style: "..." })` before any text operations.
+5. For each **icon** (every `[data-icon]` element on the rendered DOM — see Icons section below): resolve the Spring component key → import → create instance or fill the parent's `Icon#…:…` instance-swap slot.
+6. The font family is always **Inter** — load with `figma.loadFontAsync({ family: "Inter", style: "..." })` before any text operations.
+
+### 5. Icons — the `data-icon` bridge
+
+Per the `spring-icons` skill and `implement-from-figma.md` Phase 4, every icon in the source app is rendered through a typed `iconMap` that stamps `data-icon="<SpringComponentName>"` onto the SVG. That attribute is the lookup key for export.
+
+**For each `[data-icon]` you encounter, in render order:**
+
+```js
+// 1. Crawl: collect all icons + bounding boxes from the rendered DOM
+const icons = Array.from(root.querySelectorAll("[data-icon]")).map(el => ({
+  name: el.getAttribute("data-icon"),
+  bbox: el.getBoundingClientRect(),
+}));
+
+// 2. For each Spring icon (data-icon does NOT start with "custom:"):
+const results = await search_design_system({
+  query: name,                         // e.g. "HomeMd", "CaretDownMd"
+  includeLibraryKeys: [SPRING_LIBRARY_KEY],
+  includeComponents: true,
+});
+const iconKey = results.components[0].key;
+const iconComponent = await figma.importComponentByKeyAsync(iconKey);
+
+// 3a. Standalone icon → create an instance, position from bbox
+const instance = iconComponent.createInstance();
+parent.appendChild(instance);
+
+// 3b. Inside an IconButton / Button slot → use setProperties to fill the swap slot
+buttonInstance.setProperties({ "Icon#360:0": iconComponent.id });
+```
+
+**Custom icons** (`data-icon` starts with `custom:`) have no Spring DS counterpart. Export as flattened SVG nodes and append to `variant-not-found.md` with a note: "Custom icon `custom:<Name>` exported as raw SVG — consider adding to design system."
+
+**Why this works:** the `spring-icons` skill enforces that `data-icon` always equals the exact Spring component name. So React → DOM → Figma is lossless — no fuzzy matching, no per-export lookup table. Adding a new icon to the React app makes it round-trippable as long as it's registered in the icon map with the right `name`.
+
+**Common icon keys** discovered during exports should be appended to a table here as you go (same pattern as the component set keys above), so future runs can skip `search_design_system`.
 
 ---
 

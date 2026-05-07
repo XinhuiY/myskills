@@ -120,6 +120,7 @@ Typography is exposed as **component classes** (not utility prefixes) by the sam
 
 | Class                          | Approx | Use for                                |
 |--------------------------------|--------|----------------------------------------|
+| `typography-headline`          | 28px / Inter Bold | Headline hero text          |
 | `typography-display1`          | XL     | Hero displays                          |
 | `typography-display2`          | L      | Large displays                         |
 | `typography-display3`          | 1.25rem semibold | Marketing taglines, page hero |
@@ -197,7 +198,27 @@ Without the spring-theme plugin, `text-neutral-b0`, `typography-display3`, etc. 
 Tailwind version must be **v3**. Spring UI v1.x is built against the v3 plugin API; v4 is incompatible (the workspace catalog may pin v4 — check that your artifact's `package.json` resolves `tailwindcss` to v3.4.x).
 
 
-## 8. Syntax reference: combining the pieces
+## 8. Icons
+
+Spring UI does not ship icons inside `@ringcentral/spring-ui` — they live in a separate `@ringcentral/spring-icon` package with ~660 SVG components, one per file. The rules below are the minimum every Spring screen needs; the full rationale (fallback policy, custom-icon registration, Figma round-trip) is in `.agents/skills/spring-icons/SKILL.md`.
+
+- **Per-file imports only:** `import HomeMd from "@ringcentral/spring-icon/HomeMd"`. Importing from the package root pulls all 660 icons and defeats tree-shaking.
+- **Route every icon through a typed map** (`src/lib/iconMap.tsx`) keyed by stable string IDs, with `{ component, name }` entries. The wrapper component renders the Spring icon and stamps `data-icon="<SpringComponentName>"` onto the SVG. That attribute is the only link back to a Figma component during export — hand-rolled `<svg>` or `<img src="figma/icon-foo.svg">` cannot round-trip.
+- **TypeScript:** Spring 1.9.x ships no `.d.ts` for the icon package. Add an ambient declaration once per artifact (`src/types/spring-icon.d.ts`):
+  ```ts
+  declare module "@ringcentral/spring-icon/*" {
+    import type { ComponentType, SVGProps } from "react";
+    const Icon: ComponentType<SVGProps<SVGSVGElement> & { width?: number | string; height?: number | string }>;
+    export default Icon;
+  }
+  ```
+  Setting `data-*` attributes also requires a small TS cast in the wrapper — see the spring-icons skill for the pattern.
+- **Color via `currentColor`:** set the color with a Tailwind text class on the icon or its parent (`text-primary-b`, `text-neutral-b1`). Never set `fill=` directly.
+- **Sizes:** 16 (sidebar / inline rail), 20 (header / toolbar), 24 (toolbar large), 32 (large CTA). Pass as `width`/`height` props.
+- **Variants:** prefer the unfilled `*Md` over `*FilledMd` unless the design explicitly calls for filled.
+- **Don't substitute silently:** if no obvious Spring match exists for a Figma icon, ask the user with 2–3 closest candidates. Falling back to `lucide-react` or "close enough" Spring icons breaks the export contract — see Phase 4 of `implement-from-figma.md` and the spring-icons skill.
+
+## 9. Syntax reference: combining the pieces
 
 > **This is not a layout to copy.** The snippet below is a single contrived example showing how `ThemeProvider`, Spring components (`Button`, `Link`), color tokens (`text-neutral-b0`, `text-neutral-b2`), typography classes (`typography-display3`, `typography-mainText`, `typography-subtitle`), and `data-test-automation-id`s coexist in one React file. The wrapper structure, card chrome, button choices, and footer are illustrative filler — your brief decides actual layout, content, and brand chrome.
 

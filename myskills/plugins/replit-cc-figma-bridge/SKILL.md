@@ -3,7 +3,7 @@ name: replit-cc-figma-bridge
 description: Build, register, and export RingCentral Spring UI screens. Each screen stays addressable as a single Flow/Step across three surfaces — a FAB menu item at runtime, a branch in the host source component, and a Figma frame — kept in lockstep via a SCREENS.md mapping. Use for any task that builds a Spring UI screen, adds one to the in-app picker, or exports one to Figma.
 ---
 
-# Spring Screen Bridge
+# Replit ↔ Claude Code ↔ Figma Bridge
 
 This skill makes a **screen** the single addressable unit across three surfaces. A screen is identified by a `{ flow, step }` pair, and its canonical ID is the string `"<Flow>/<Step>"` (e.g. `"Sign in/Email"`).
 
@@ -15,11 +15,12 @@ This skill makes a **screen** the single addressable unit across three surfaces.
 
 `SCREENS.md` is the table that ties them together. Once installed, any agent can resolve a screen name to a precise source location, the assets it depends on, and the Figma keys it needs — without re-discovery.
 
-Three modules support that bridge:
+Four modules support that bridge:
 
-1. **Build** the screen using production-accurate Spring UI patterns.
-2. **Register** the screen in the FAB and `SCREENS.md`.
-3. **Export** the screen to Figma using the Spring DS library's persistent keys.
+1. **Implement from Figma** — translate a Figma frame into faithful Spring UI JSX (skip if there's no Figma reference).
+2. **Build** the screen using production-accurate Spring UI patterns.
+3. **Register** the screen in the FAB and `SCREENS.md`.
+4. **Export** the screen back to Figma using the Spring DS library's persistent keys.
 
 Read only the modules relevant to the current task. For copy-pasteable prompts the user can hand to any agent, see `USAGE.md` in this skill folder.
 
@@ -27,23 +28,49 @@ Read only the modules relevant to the current task. For copy-pasteable prompts t
 
 | Task                                                                 | Module                          |
 | -------------------------------------------------------------------- | ------------------------------- |
+| Translating a Figma frame into JSX (any time the source is a Figma node) | `modules/implement-from-figma.md` |
 | Building a new Spring UI demo (sign-in, settings, marketing card…)   | `modules/build-in-replit.md`    |
 | Adding the screen-picker FAB to a demo, or registering a new screen  | `modules/screen-picker.md`      |
 | Exporting a `.tsx` source file to a Figma frame                      | `modules/export-to-figma.md`    |
-| All of the above (typical: design a demo, ship it, export it)        | All three, in that order        |
 
 ## Typical workflow
 
+There are two starting points. Pick the one that matches the brief.
+
+### Path A — Source of truth is a Figma frame
+
 ```
-build with prod-patterns        →   register screens with screen-picker  →   export with figma-keys
-─────────────────────────────       ──────────────────────────────────       ──────────────────────
-Spring class structure              Install FAB scaffold                     Read SCREENS.md to find the JSX
-Color & typography tokens           Append { flow, step } to SCREENS         Look up text/color/component keys
-Layout & data-test-automation-id    Branch host component on screen ID       Bind nodes to Spring DS library
-Tailwind config                     Update SCREENS.md table + assets         Upload assets, set properties
+implement-from-figma          →   build-in-replit            →   screen-picker            →   export-to-figma
+──────────────────────────       ───────────────────────         ──────────────────────       ──────────────────────
+Fetch design context + screenshot  Spring class structure          Install FAB scaffold          Read SCREENS.md to find JSX
+Map data-name → Spring component   Color & typography tokens       Append { flow, step }         Look up text/color/component keys
+Extract LEAF tokens (not parent)   Layout & data-test-automation   Branch host component         Bind nodes to Spring DS library
+Confirm icon substitutions         Tailwind config                 Update SCREENS.md             Upload assets, set properties
+Verify static-asset MIME + size
+Never invent content
 ```
 
+### Path B — Source of truth is a written brief (no Figma yet)
+
+```
+build-in-replit               →   screen-picker            →   export-to-figma
+───────────────────────           ──────────────────────       ──────────────────────
+Pick layout from brief            Install FAB scaffold          Read SCREENS.md to find JSX
+Spring class structure            Append { flow, step }         Look up text/color/component keys
+Color & typography tokens         Branch host component         Bind nodes to Spring DS library
+Layout & data-test-automation     Update SCREENS.md             Upload assets, set properties
+Tailwind config
+```
+
+`implement-from-figma` is only consulted on Path A. The other three modules are common to both.
+
+**Where each step runs:** `implement-from-figma`, `build-in-replit`, and `screen-picker` all run inside Replit. `export-to-figma` requires the Figma **plugin API**, which the Replit MCP does not expose — that step typically runs in **Claude Code** with the Figma Desktop MCP attached. See `modules/export-to-figma.md` "Prerequisite" for the full split.
+
 ## Modules
+
+### `modules/implement-from-figma.md`
+
+Methodology for translating a Figma frame into faithful Spring UI JSX. Six phases: (1) fetch design context + screenshot, (2) map every Figma `data-name` to its Spring component before writing JSX, (3) extract typography/color/spacing tokens at the LEAF `<p>`/`<span>` not the parent `<div>`, (4) ask before substituting any non-exact icon match, (5) verify static-asset MIME + dimensions, (6) never invent copy. Includes pre-flight checklist and an anti-pattern catalog of real regressions. Read this **before** `build-in-replit.md` whenever the source of truth is a Figma node. Skip when the brief is text-only.
 
 ### `modules/build-in-replit.md`
 
@@ -56,6 +83,8 @@ Runtime FAB picker that lets designers switch between named screens (and themes)
 ### `modules/export-to-figma.md`
 
 Persistent Spring DS Figma library keys for text styles, color variables, and component sets, plus the per-component `setProperties()` property names. Use to translate a `.tsx` file into Figma nodes bound to the real library. Includes the library key for scoping `search_design_system`.
+
+> **Prerequisite:** the snippets in this module call the Figma **plugin API** (`figma.importStyleByKeyAsync`, etc.). They run in **Claude Code** with a Figma plugin MCP attached — not in Replit, whose Figma MCP only reads context, takes screenshots, uploads assets, and manages Code Connect. The module's "Prerequisite" section spells this out and lists which steps can be done from Replit (asset upload, Code Connect mapping) vs which require Claude Code (frame construction).
 
 ## Templates
 
