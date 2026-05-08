@@ -1,6 +1,6 @@
 # Using replit-cc-figma-bridge
 
-Four entry points cover everything the skill does. Pick the one that matches your task and use the prompt template verbatim — the agent will load the right module(s) on its own.
+Five core entry points cover everything the skill does — with #4 split into two opt-in add-ons (`4a` snapshots, `4b` rename-in-app). Pick the one that matches your task and use the prompt template verbatim — the agent will load the right module(s) on its own.
 
 ## Screen identity
 
@@ -50,7 +50,27 @@ The Figma URL has the form `https://figma.com/design/<fileKey>/<name>?node-id=<n
 
 Modules consulted: `implement-from-figma.md` (primary), `build-in-replit.md` (token reference), `screen-picker.md` (registration).
 
-## 4. Export a screen to Figma
+## 4a. Enable snapshots (optional add-on)
+
+Use when you want designers to be able to save runtime "variants" of an existing screen — sidebar collapsed, alt nav order, theme, etc. — without each variant becoming a new code screen.
+
+> Use the replit-cc-figma-bridge skill, `modules/snapshots.md`, to enable snapshots in `artifacts/<name>`. Wire up the `ScreenStateAdapter` for this app's replayable state (<list what should be captured: nav order, sidebar collapsed, theme, etc.>).
+
+Snapshots are localStorage-only — no backend changes needed.
+
+Modules consulted: `snapshots.md`, plus `screen-picker.md` for existing FAB context.
+
+## 4b. Enable in-app renames (optional add-on)
+
+Use when you want designers to be able to rename a flow or step from inside the running app, with the rewrite happening in the source files.
+
+> Use the replit-cc-figma-bridge skill, `modules/rename-in-app.md`, to enable in-app renames in `artifacts/<name>`. Mount the rename endpoints in the existing Express routes and pass `enableRename` to the FAB.
+
+⚠️ The rename endpoints have no authz — local dev tools only. Each rename produces uncommitted changes to four files; commit/review accordingly.
+
+Modules consulted: `rename-in-app.md`, plus `screen-picker.md` for existing FAB context.
+
+## 5. Export a screen to Figma
 
 Use when screens already exist in code and you want a Figma frame.
 

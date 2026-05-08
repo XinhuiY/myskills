@@ -8,11 +8,34 @@ This module ships theme + screen switching only (no environment frames, no role 
 
 A **screen** is `{ flow, step }`:
 
-- **Flow** — a top-level grouping (e.g. `Sign in`, `Home`, `Settings`). Renders as a `MenuHeader` in the FAB.
+- **Flow** — a top-level grouping (e.g. `Sign in`, `Home`, `Settings`). Renders as a `MenuHeader` inside the FAB's Export submenu.
 - **Step** — a leaf within the flow (e.g. `Email`, `Password`, `Verify`, `Success`). Renders as a `MenuItem` under that flow's header.
 - **Screen ID** — the canonical string `"<Flow>/<Step>"` (e.g. `"Sign in/Email"`). This is what the host component branches on and what `screen` state holds.
 
 Adding a screen is a one-row append to a registry. If the flow doesn't exist yet, it's auto-created — there is no separate "register a flow" step.
+
+## FAB layout — Export is the canonical last item
+
+Every FAB built from this template has the same fixed shape at the bottom:
+
+```
+┌────────────────────────┐
+│  …project-specific …   │   ← freely customizable area (theme picker,
+│  …items go here…       │     env switches, role pickers, links, etc.)
+├────────────────────────┤   ← MenuDivider (required)
+│  Export              ▸ │   ← canonical Export item (required, always last)
+└────────────────────────┘
+```
+
+- **Export** is the only required item the skill ships. It is **always** rendered as the last menu item, with a `MenuDivider` immediately above it. Nothing may be added below it.
+- Clicking Export opens a **2nd-level menu** anchored to the Export `MenuItem`, listing every screen in `SCREENS` grouped by `flow` (`MenuHeader` per flow, `MenuItem` per step). Selecting a screen calls `setScreen("<Flow>/<Step>")` and closes both menus.
+- **Anything above** the divider is the project's choice. The default template ships a Theme section as an example so theme switching works out of the box; projects are free to remove it, replace it, or add additional sections (env switches, role picker, links to docs, etc.) above the Export divider.
+
+This shape is what `templates/PresentationConfigFab.tsx` implements — when editing the FAB inside an installed project, preserve the Export-at-bottom-with-divider structure even if everything above it changes.
+
+### Share affordance
+
+Each step in the 2nd-level Export submenu has a hover-revealed **share** icon. Clicking it copies a paste-ready "optimal export prompt" (Flow / Step + a pointer to `SCREENS.md` + asset upload reminder) to the clipboard, designed to be pasted into Claude Code (or any agent that loads this skill) so it can render that exact screen and export it to Figma. Always on — no adapter wiring required. If `modules/snapshots.md` is also enabled, every snapshot row gets the same affordance, with state-delta detail when the adapter implements `describePromptDelta`.
 
 ## Architecture
 
@@ -22,6 +45,8 @@ src/
   presentation-config/
     PresentationConfigContext.tsx     # theme + screen state + provider + hook
     PresentationConfigFab.tsx         # FAB + Flow/Step menu + Theme menu
+    snapshots.ts                      # types/store imported unconditionally by the FAB;
+                                      # stays inert until the snapshots add-on is wired up
     index.ts                          # barrel
 SCREENS.md                            # screen-name → source-location table
 ```
@@ -34,6 +59,8 @@ The host component (typically `Home()` in `src/App.tsx`) reads `screen` from con
 
 so the screen is grep-findable even if line numbers drift.
 
+> **Spacing note.** The anchor comment is human-readable and uses **spaces around the slash** (`Sign in / Email`). The runtime **screen ID** is the same pair without the spaces (`"Sign in/Email"`). Both forms are canonical — don't try to normalize one into the other.
+
 ## Operation 1 — Install
 
 Use when the artifact has no `src/presentation-config/` folder yet.
@@ -41,7 +68,9 @@ Use when the artifact has no `src/presentation-config/` folder yet.
 1. Pick the host component that owns the screen-bearing JSX (usually `Home` in `src/App.tsx`). Confirm with the user if ambiguous.
 2. Copy these files from `../templates/`:
    - `screens.ts` → `<artifact>/src/screens.ts`
-   - `PresentationConfigContext.tsx`, `PresentationConfigFab.tsx`, `index.ts` → `<artifact>/src/presentation-config/`
+   - `PresentationConfigContext.tsx`, `PresentationConfigFab.tsx`, `snapshots.ts`, `index.ts` → `<artifact>/src/presentation-config/`
+
+   `snapshots.ts` is required because the FAB imports its types unconditionally; it stays inert (zero behavior, nothing in localStorage) until you opt into the snapshots add-on by passing `screenStateAdapter`. Don't skip it.
 3. Replace the placeholder `SCREENS` registry in `src/screens.ts` with the real screens that exist today, in display order:
 
    ```ts
@@ -98,7 +127,9 @@ Use when the artifact has no `src/presentation-config/` folder yet.
 6. Copy `../templates/SCREENS.md` into the artifact root and fill in the rows for the existing screens.
 7. **Populate the Static assets table.** Walk every screen branch and the shell, list every image / SVG / video referenced in the JSX (e.g. `<img src={\`${base}ringcentral-logo.png\`} />`), and add one row per asset to the Static assets table mapping the JSX reference to its local path under `public/`. This is what lets export prompts upload assets to Figma instead of substituting placeholders.
 8. **Optional — FAB position.** The template positions the FAB bottom-right (`bottom: 24, right: 24`). If the brief calls for a different placement (e.g. top-right for a header-anchored demo), edit the inline `style` on the wrapping `<div>` in `PresentationConfigFab.tsx` — that's the only positioning code.
-9. Run the artifact's typecheck script and fix any errors before handing back.
+
+9. **Optional — customize the area above the Export divider.** The template ships a Theme section by default. Projects are free to remove it, replace it, or add additional sections (env switches, role picker, links to docs, etc.) above the Export `MenuDivider`. Do not add anything below the Export item — see the "FAB layout" section above.
+10. Run the artifact's typecheck script and fix any errors before handing back.
 
 ## Operation 2 — Add a screen
 
@@ -173,10 +204,11 @@ Once installed, the user can ask any agent to act on a screen by name with no fu
 
 ## Templates
 
-Templates live in `../templates/` of this skill:
+See the **Templates** section in `SKILL.md` for the canonical list (`screens.ts`, `PresentationConfigContext.tsx`, `PresentationConfigFab.tsx`, `snapshots.ts`, `server/*`, `index.ts`, `SCREENS.md`). The install steps above only require the first three plus `snapshots.ts` (which stays inert until the snapshots add-on is wired up) and `SCREENS.md`.
 
-- `screens.ts` — `SCREENS` registry, `ScreenId` type, `groupScreensByFlow` helper, `DEFAULT_SCREEN`.
-- `PresentationConfigContext.tsx` — slim provider with theme + screen state, `screen` typed as `ScreenId`.
-- `PresentationConfigFab.tsx` — FAB (bottom-right by default) with auto-grouped Flow/Step menu and Theme menu, including the React 19 type-cast workaround.
-- `index.ts` — barrel export.
-- `SCREENS.md` — table template with Shell, Registry note, Screens, Static assets, prompt template, and a pointer to Operation 2 above.
+## Optional add-ons
+
+- **Snapshots** — runtime state "variants" of code-defined screens. See `modules/snapshots.md`.
+- **Rename in-app** — rename flows / steps from inside the running app via source-file rewrites. See `modules/rename-in-app.md`.
+
+Both are off by default and don't affect projects that don't opt in.

@@ -9,18 +9,22 @@ This skill makes a **screen** the single addressable unit across three surfaces.
 
 | Surface     | What "a screen" looks like there                                  |
 | ----------- | ------------------------------------------------------------------ |
-| Runtime UI  | One `MenuItem` (the **Step**) under a `MenuHeader` (the **Flow**) in the FAB |
+| Runtime UI  | One `MenuItem` (the **Step**) under a `MenuHeader` (the **Flow**) inside the FAB's Export submenu |
 | Source code | One row in the `SCREENS` registry in `src/screens.ts`, plus one `if (screen === "<Flow>/<Step>")` branch in the host component, marked with a `// SCREEN: <Flow> / <Step>` anchor comment |
 | Figma       | One frame, exportable from the source branch using Spring DS keys  |
 
+The FAB itself follows a fixed shape: an **Export** item is always the last menu item (with a `MenuDivider` above it), and clicking it opens a 2nd-level menu listing every registered screen, grouped by flow. Anything above the Export divider is project-customizable; nothing goes below. See `modules/screen-picker.md` "FAB layout" for the diagram.
+
 `SCREENS.md` is the table that ties them together. Once installed, any agent can resolve a screen name to a precise source location, the assets it depends on, and the Figma keys it needs — without re-discovery.
 
-Four modules support that bridge:
+Four core modules support that bridge, plus two optional add-ons:
 
 1. **Implement from Figma** — translate a Figma frame into faithful Spring UI JSX (skip if there's no Figma reference).
 2. **Build** the screen using production-accurate Spring UI patterns.
 3. **Register** the screen in the FAB and `SCREENS.md`.
 4. **Export** the screen back to Figma using the Spring DS library's persistent keys.
+5. **Snapshots** *(optional)* — let designers save runtime state variants of any code screen, rendered as indented children of their parent step in the Export submenu. localStorage-only, no backend.
+6. **Rename in-app** *(optional)* — rename flows / steps from inside the running app via source-file rewrites. Small Express endpoint, **no authz — local dev tools only**.
 
 Read only the modules relevant to the current task. For copy-pasteable prompts the user can hand to any agent, see `USAGE.md` in this skill folder.
 
@@ -32,6 +36,8 @@ Read only the modules relevant to the current task. For copy-pasteable prompts t
 | Building a new Spring UI demo (sign-in, settings, marketing card…)   | `modules/build-in-replit.md`    |
 | Adding the screen-picker FAB to a demo, or registering a new screen  | `modules/screen-picker.md`      |
 | Exporting a `.tsx` source file to a Figma frame                      | `modules/export-to-figma.md`    |
+| Adding runtime snapshot variants of a screen                         | `modules/snapshots.md`          |
+| Renaming a flow / step from inside the running app                   | `modules/rename-in-app.md`      |
 
 ## Typical workflow
 
@@ -64,7 +70,7 @@ Tailwind config
 
 `implement-from-figma` is only consulted on Path A. The other three modules are common to both.
 
-**Where each step runs:** `implement-from-figma`, `build-in-replit`, and `screen-picker` all run inside Replit. `export-to-figma` requires the Figma **plugin API**, which the Replit MCP does not expose — that step typically runs in **Claude Code** with the Figma Desktop MCP attached. See `modules/export-to-figma.md` "Prerequisite" for the full split.
+**Where each step runs:** `implement-from-figma`, `build-in-replit`, `screen-picker`, `snapshots`, and `rename-in-app` all run inside Replit. The `rename-in-app` endpoint rewrites source files in the user's working tree (no authz — local dev tools only). `export-to-figma` requires the Figma **plugin API**, which the Replit MCP does not expose — that step typically runs in **Claude Code** with the Figma Desktop MCP attached. See `modules/export-to-figma.md` "Prerequisite" for the full split.
 
 ## Modules
 
@@ -86,13 +92,28 @@ Persistent Spring DS Figma library keys for text styles, color variables, and co
 
 > **Prerequisite:** the snippets in this module call the Figma **plugin API** (`figma.importStyleByKeyAsync`, etc.). They run in **Claude Code** with a Figma plugin MCP attached — not in Replit, whose Figma MCP only reads context, takes screenshots, uploads assets, and manages Code Connect. The module's "Prerequisite" section spells this out and lists which steps can be done from Replit (asset upload, Code Connect mapping) vs which require Claude Code (frame construction).
 
+### `modules/snapshots.md` (optional)
+
+Capture the current UI state of a code-defined screen as a localStorage-only "variant" rendered as an indented child of its parent step in the Export submenu. Per-project state shape via a small `ScreenStateAdapter<TState>` contract; the FAB handles save / apply / delete / "selected indicator" derivation generically. Clicking the parent step while on its screen calls `adapter.reset()` so the parent feels like a restore point. Optional `describePromptDelta` on the adapter feeds the share button's snapshot prompt.
+
+Off by default; enable via `<PresentationConfigFab screenStateAdapter={...} />`.
+
+### `modules/rename-in-app.md` (optional)
+
+Pencil-icon affordances on flows / steps in the Export submenu. POSTs to `/api/screens/rename-flow` and `/rename-step`, which rewrite all four bridge surfaces (`screens.ts`, `App.tsx`, page `.tsx`, `SCREENS.md`) using a plan-then-commit strategy. Backend ships as `templates/server/` files. **No authz — local dev tools only.** When combined with `snapshots.md`, the endpoint returns a `{ remap }` map so the FAB can patch any snapshot whose `screenId` embedded the renamed flow/step.
+
+Off by default; enable via `<PresentationConfigFab enableRename />`. Creating / deleting screens is intentionally NOT in this module — both remain code edits via Operation 2 of `screen-picker.md`.
+
 ## Templates
 
 Used by the screen-picker install workflow:
 
 - `templates/screens.ts` — `SCREENS` registry, derived `ScreenId` template-literal type, `groupScreensByFlow` helper, and `DEFAULT_SCREEN`.
 - `templates/PresentationConfigContext.tsx` — slim provider with theme + screen state, `screen` typed as `ScreenId` from the registry.
-- `templates/PresentationConfigFab.tsx` — FAB that auto-groups screens by flow into `MenuHeader` + `MenuItem` sections, plus a Theme menu (includes the React 19 type-cast workaround for Spring UI 1.9.2's Menu family).
+- `templates/PresentationConfigFab.tsx` — FAB that auto-groups screens by flow into `MenuHeader` + `MenuItem` sections, plus a Theme menu (includes the React 19 type-cast workaround for Spring UI 1.9.2's Menu family). Optional `screenStateAdapter` and `enableRename` props light up the snapshots / renames add-on.
+- `templates/snapshots.ts` — generic `Snapshot<TState>` store + `ScreenStateAdapter<TState>` contract used by the snapshots add-on.
+- `templates/server/screensEdit.ts` — source-file rewriter that powers in-app flow / step renames (plan-then-commit, replacement-count assertions). Path-configurable.
+- `templates/server/registerScreenRenameRoutes.ts` — Express helper that mounts `POST /api/screens/rename-flow` and `/rename-step`.
 - `templates/index.ts` — barrel export.
 - `templates/SCREENS.md` — table template with Shell, Registry note, Screens (Flow / Step / ID columns), Static assets, prompt template, and a pointer to "Adding a new screen".
 
