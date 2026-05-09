@@ -16,6 +16,11 @@ import {
 } from "@ringcentral/spring-ui";
 import SettingsMd from "@ringcentral/spring-icon/SettingsMd";
 import CaretRightMd from "@ringcentral/spring-icon/CaretRightMd";
+// FAB chrome affordances (rename / copy-prompt / delete) intentionally use
+// `lucide-react` rather than Spring icons. They are tool chrome, not Figma-
+// translated screen content, so the "no lucide substitution" rule from
+// implement-from-figma.md / build-in-replit.md does not apply here.
+import { Pencil, Share2, Trash2 } from "lucide-react";
 import { usePresentationConfig, type ThemeOption } from "./PresentationConfigContext";
 import { SCREENS, groupScreensByFlow, type ScreenId } from "../screens";
 import {
@@ -56,6 +61,10 @@ const MenuDivider = MenuDividerRaw as ComponentType<any>;
 //     renames POST to `/api/screens/rename-flow` and `/rename-step`
 //     (mount via `registerScreenRenameRoutes` from the server template).
 //     After a successful source rewrite, Vite hot-reloads the page.
+//     **Default: true** — flows / steps / snapshots are renamable out
+//     of the box. Pass `enableRename={false}` to hide the pencils
+//     (e.g. for a published demo where the rename endpoints aren't
+//     mounted, or shouldn't be reachable).
 export interface PresentationConfigFabProps<TState = unknown> {
   screenStateAdapter?: ScreenStateAdapter<TState>;
   enableRename?: boolean;
@@ -65,7 +74,7 @@ export interface PresentationConfigFabProps<TState = unknown> {
 
 export function PresentationConfigFab<TState = unknown>({
   screenStateAdapter,
-  enableRename = false,
+  enableRename = true,
   snapshotsStorageKey,
 }: PresentationConfigFabProps<TState> = {}) {
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -75,15 +84,20 @@ export function PresentationConfigFab<TState = unknown>({
   // while the main menu remains open behind it.
   const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
   const exportOpen = Boolean(exportAnchor);
+  // Theme picker is a 2nd-level submenu mirroring Export, anchored to the
+  // "Theme" MenuItem in the main FAB menu. Keeps the main menu compact
+  // regardless of how many themes ship.
+  const [themeAnchor, setThemeAnchor] = useState<HTMLElement | null>(null);
+  const themeOpen = Boolean(themeAnchor);
 
   const { themeOption, setThemeOption, screen, setScreen } =
     usePresentationConfig();
 
   const closeAll = () => {
     setExportAnchor(null);
+    setThemeAnchor(null);
     setOpen(false);
   };
-  const handleClose = () => setOpen(false);
 
   // ─── Snapshot state (only meaningful when adapter is provided) ──────
   const [snapshots, setSnapshots] = useState<Snapshot<TState>[]>(() =>
@@ -241,47 +255,45 @@ export function PresentationConfigFab<TState = unknown>({
   // To add a screen: append to SCREENS in `screens.ts` — no edits here.
   const flowGroups = groupScreensByFlow(SCREENS);
 
-  // Pencil-icon button rendered inline next to a label. Hidden until
-  // hover/focus on its parent (which must carry the `group` class).
-  const pencilButton = (
+  // Inline icon-button rendered next to a label. Hidden until hover/focus
+  // on its parent row (which must carry Tailwind's `group` class). The
+  // `variant` controls the hover background:
+  //   - "header" — used inside MenuHeader rows (no MenuItem white surface),
+  //     so hover uses a subtle neutral fill (`#eef0f3`).
+  //   - "row"    — used inside MenuItem rows (already white on hover via
+  //     Spring), so hover uses `bg-white` to read as a nested affordance.
+  //   - "danger" — like "row" but turns red on hover, for delete.
+  const iconButton = (
     label: string,
+    icon: React.ReactNode,
     onClick: (e: React.MouseEvent) => void,
-  ) => (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick(e);
-      }}
-      aria-label={label}
-      title={label}
-      style={{
-        marginLeft: 8,
-        width: 20,
-        height: 20,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        opacity: 0,
-        background: "transparent",
-        border: 0,
-        borderRadius: 4,
-        cursor: "pointer",
-      }}
-      className="fab-pencil"
-    >
-      ✎
-    </button>
-  );
+    variant: "header" | "row" | "danger" = "row",
+    extraMargin: "ml-1" | "ml-2" = "ml-1",
+  ) => {
+    const hover =
+      variant === "header"
+        ? "hover:bg-[#eef0f3] hover:text-[#323439]"
+        : variant === "danger"
+          ? "hover:bg-white hover:text-[#d70015]"
+          : "hover:bg-white hover:text-[#323439]";
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick(e);
+        }}
+        aria-label={label}
+        title={label}
+        className={`${extraMargin} inline-flex h-5 w-5 items-center justify-center rounded-[6px] text-[#72757a] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ${hover} transition-[opacity,background-color,color]`}
+      >
+        {icon}
+      </button>
+    );
+  };
 
   return (
     <>
-      {/* CSS-only hover reveal for the inline pencil/delete buttons. */}
-      <style>{`
-        .fab-row:hover .fab-pencil,
-        .fab-row:focus-within .fab-pencil { opacity: 0.7; }
-        .fab-pencil:hover { opacity: 1 !important; background: rgba(0,0,0,0.06); }
-      `}</style>
       <div
         style={{
           position: "fixed",
@@ -308,46 +320,39 @@ export function PresentationConfigFab<TState = unknown>({
           // anchor) while the submenu is open — let the submenu's own
           // onClose handle dismissal. Otherwise Spring's clickaway fires
           // when the submenu opens and the whole stack collapses.
-          if (!exportOpen) setOpen(false);
+          if (!exportOpen && !themeOpen) setOpen(false);
         }}
         placement="left"
         PopperProps={{ offset: 8 }}
       >
         {/* ─── Customizable area ──────────────────────────────────────
-            Add any project-specific items above the Export divider —
-            switches, radios, links, etc. The Theme section below is a
-            default-shipped example; remove or replace it freely. The
-            only required, fixed element of the FAB is the Export item
-            at the bottom (with its divider above), which opens the
-            screen list as a 2nd-level menu.
+            Add any project-specific items here — switches, links, etc.
+            They render ABOVE the Theme + Export pair below. The two
+            required, fixed elements at the bottom of the FAB are
+            Theme (2nd-to-last) and Export (last); do not insert any
+            project-specific items between or below them.
             ──────────────────────────────────────────────────────────── */}
-        <MenuHeader
-          divider={false}
-          className="justify-start px-4 typography-labelSemiBold h-8 text-neutral-b2"
-        >
-          Theme
-        </MenuHeader>
-        {themeItems.map((item) => (
-          <MenuItem
-            key={item.value}
-            selected={themeOption === item.value}
-            onClick={() => {
-              setThemeOption(item.value);
-              handleClose();
-            }}
-          >
-            <MenuItemText>{item.label}</MenuItemText>
-          </MenuItem>
-        ))}
 
-        {/* ─── Export (canonical, always last) ────────────────────────
-            Required item shipped by the bridge skill. Always rendered
-            as the last menu item, with a divider above it. Opens a
-            2nd-level menu listing every screen registered in `SCREENS`,
-            grouped by flow. Selecting a screen calls `setScreen(<id>)`
-            so the host component renders that screen. Do not add
-            anything below this item.
+        {/* ─── Theme + Export (canonical last two items) ──────────────
+            Per the bridge-skill FAB convention, Theme is ALWAYS the
+            2nd-to-last item and Export is ALWAYS the last item. Each
+            is preceded by its own MenuDivider, and each opens its own
+            2nd-level submenu. Do not insert items between them or
+            below Export.
             ──────────────────────────────────────────────────────────── */}
+        <MenuDivider />
+        {/* Theme — opens a 2nd-level submenu mirroring Export. Keeps the
+            main FAB menu compact regardless of how many themes ship.
+            `autoClose={false}` for the same reason as Export below. */}
+        <MenuItem
+          autoClose={false}
+          onClick={(e: React.MouseEvent<HTMLElement>) =>
+            setThemeAnchor((prev) => (prev ? null : e.currentTarget))
+          }
+        >
+          <MenuItemText>Theme</MenuItemText>
+          <CaretRightMd width={16} height={16} />
+        </MenuItem>
         <MenuDivider />
         {/* `autoClose={false}` is required: Spring `MenuItem` closes
             its parent Menu by default, which would unmount the Export
@@ -380,12 +385,16 @@ export function PresentationConfigFab<TState = unknown>({
             {idx > 0 && <MenuDivider />}
             <MenuHeader
               divider={false}
-              className="justify-start px-4 typography-labelSemiBold h-8 text-neutral-b2 fab-row"
+              className="group justify-start px-4 typography-labelSemiBold h-8 text-neutral-b2"
             >
               <span style={{ flex: 1 }}>{group.flow}</span>
               {enableRename &&
-                pencilButton(`Rename flow ${group.flow}`, () =>
-                  renameFlowPrompt(group.flow),
+                iconButton(
+                  `Rename flow ${group.flow}`,
+                  <Pencil className="h-3 w-3" />,
+                  () => renameFlowPrompt(group.flow),
+                  "header",
+                  "ml-2",
                 )}
             </MenuHeader>
             {group.steps.map((s) => {
@@ -400,7 +409,7 @@ export function PresentationConfigFab<TState = unknown>({
                 <Fragment key={s.id}>
                   <MenuItem
                     selected={stepSelected}
-                    className="fab-row"
+                    className="group"
                     onClick={() => {
                       if (!isCurrent) {
                         setScreen(s.id as ScreenId);
@@ -419,31 +428,21 @@ export function PresentationConfigFab<TState = unknown>({
                     }}
                   >
                     <MenuItemText>{s.step}</MenuItemText>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
+                    {iconButton(
+                      `Copy export prompt for ${s.step}`,
+                      <Share2 className="h-3 w-3" />,
+                      () => {
                         void copyExportPrompt(group.flow, s.step);
                         closeAll();
-                      }}
-                      aria-label={`Copy export prompt for ${s.step}`}
-                      title="Copy export prompt"
-                      className="fab-pencil"
-                      style={{
-                        marginLeft: 8,
-                        width: 20,
-                        height: 20,
-                        background: "transparent",
-                        border: 0,
-                        borderRadius: 4,
-                        cursor: "pointer",
-                      }}
-                    >
-                      ⇪
-                    </button>
+                      },
+                      "row",
+                      "ml-2",
+                    )}
                     {enableRename &&
-                      pencilButton(`Rename step ${s.step}`, () =>
-                        renameStepPrompt(group.flow, s.step),
+                      iconButton(
+                        `Rename step ${s.step}`,
+                        <Pencil className="h-3 w-3" />,
+                        () => renameStepPrompt(group.flow, s.step),
                       )}
                   </MenuItem>
                   {/* Snapshots — inline indented, NOT a 3rd-level
@@ -453,7 +452,7 @@ export function PresentationConfigFab<TState = unknown>({
                       <MenuItem
                         key={snap.id}
                         selected={appliedSnapshotId === snap.id}
-                        className="fab-row"
+                        className="group"
                         onClick={() => {
                           applySnapshot(snap);
                           closeAll();
@@ -462,53 +461,26 @@ export function PresentationConfigFab<TState = unknown>({
                         <MenuItemText>
                           <span style={{ paddingLeft: 20 }}>{snap.name}</span>
                         </MenuItemText>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
+                        {iconButton(
+                          `Copy export prompt for ${snap.name}`,
+                          <Share2 className="h-3 w-3" />,
+                          () => {
                             void copyExportPrompt(group.flow, s.step, snap);
                             closeAll();
-                          }}
-                          aria-label={`Copy export prompt for ${snap.name}`}
-                          title="Copy export prompt"
-                          className="fab-pencil"
-                          style={{
-                            marginLeft: 8,
-                            width: 20,
-                            height: 20,
-                            background: "transparent",
-                            border: 0,
-                            borderRadius: 4,
-                            cursor: "pointer",
-                          }}
-                        >
-                          ⇪
-                        </button>
+                          },
+                        )}
                         {enableRename &&
-                          pencilButton(`Rename snapshot ${snap.name}`, () =>
-                            renameSnapshotPrompt(snap),
+                          iconButton(
+                            `Rename snapshot ${snap.name}`,
+                            <Pencil className="h-3 w-3" />,
+                            () => renameSnapshotPrompt(snap),
                           )}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteSnapshot(snap.id);
-                          }}
-                          aria-label={`Delete snapshot ${snap.name}`}
-                          title="Delete snapshot"
-                          className="fab-pencil"
-                          style={{
-                            marginLeft: 4,
-                            width: 20,
-                            height: 20,
-                            background: "transparent",
-                            border: 0,
-                            borderRadius: 4,
-                            cursor: "pointer",
-                          }}
-                        >
-                          ×
-                        </button>
+                        {iconButton(
+                          `Delete snapshot ${snap.name}`,
+                          <Trash2 className="h-3 w-3" />,
+                          () => deleteSnapshot(snap.id),
+                          "danger",
+                        )}
                       </MenuItem>
                     ))}
                   {/* "+ Snapshot" affordance — only on the current
@@ -539,6 +511,30 @@ export function PresentationConfigFab<TState = unknown>({
               );
             })}
           </Fragment>
+        ))}
+      </Menu>
+
+      {/* 2nd-level Theme submenu: lists every Spring-supported theme.
+          Mirrors the Export submenu pattern so the main FAB menu stays
+          compact regardless of how many themes ship. */}
+      <Menu
+        open={themeOpen}
+        anchorEl={themeAnchor}
+        onClose={() => setThemeAnchor(null)}
+        placement="left-start"
+        PopperProps={{ offset: 8 }}
+      >
+        {themeItems.map((item) => (
+          <MenuItem
+            key={item.value}
+            selected={themeOption === item.value}
+            onClick={() => {
+              setThemeOption(item.value);
+              closeAll();
+            }}
+          >
+            <MenuItemText>{item.label}</MenuItemText>
+          </MenuItem>
         ))}
       </Menu>
     </>

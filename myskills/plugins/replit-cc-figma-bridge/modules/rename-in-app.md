@@ -54,12 +54,18 @@ It uses a **plan-then-commit** strategy: every transform is computed in memory w
    });
    ```
 
-3. Turn the affordances on in the FAB:
+3. The pencil affordances are **on by default** (`enableRename = true`) — no FAB prop is needed once the server routes are mounted:
 
    ```tsx
-   <PresentationConfigFab enableRename />
+   <PresentationConfigFab />
    // or, combined with snapshots:
-   <PresentationConfigFab screenStateAdapter={adapter} enableRename />
+   <PresentationConfigFab screenStateAdapter={adapter} />
+   ```
+
+   To hide the pencils (e.g. for a published demo where the rename endpoints aren't mounted), pass `enableRename={false}`:
+
+   ```tsx
+   <PresentationConfigFab enableRename={false} />
    ```
 
 ## Validation rules
