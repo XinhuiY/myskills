@@ -20,9 +20,9 @@ import CaretRightMd from "@ringcentral/spring-icon/CaretRightMd";
 // `lucide-react` rather than Spring icons. They are tool chrome, not Figma-
 // translated screen content, so the "no lucide substitution" rule from
 // implement-from-figma.md / build-in-replit.md does not apply here.
-import { Pencil, Share2, Trash2 } from "lucide-react";
+import { Link, Pencil, Share2, Trash2 } from "lucide-react";
 import { usePresentationConfig, type ThemeOption } from "./PresentationConfigContext";
-import { SCREENS, groupScreensByFlow, type ScreenId } from "../screens";
+import { DEFAULT_SCREEN, SCREENS, groupScreensByFlow, type ScreenId } from "../screens";
 import {
   buildExportPrompt,
   groupSnapshotsByScreen,
@@ -228,6 +228,22 @@ export function PresentationConfigFab<TState = unknown>({
       // Clipboard API can reject in non-secure contexts; fall back to
       // window.prompt so the user can copy manually.
       window.prompt("Copy this prompt:", text);
+    }
+  }
+
+  // Copy a deep link for the given screen to the clipboard. Preserves the
+  // current ?theme= param (already in the URL) and swaps ?screen= only.
+  async function copyLink(screenId: ScreenId) {
+    const url = new URL(window.location.href);
+    if (screenId === DEFAULT_SCREEN) {
+      url.searchParams.delete("screen");
+    } else {
+      url.searchParams.set("screen", screenId);
+    }
+    try {
+      await navigator.clipboard.writeText(url.toString());
+    } catch {
+      window.prompt("Copy this link:", url.toString());
     }
   }
 
@@ -437,6 +453,14 @@ export function PresentationConfigFab<TState = unknown>({
                       },
                       "row",
                       "ml-2",
+                    )}
+                    {iconButton(
+                      `Copy link for ${s.step}`,
+                      <Link className="h-3 w-3" />,
+                      () => {
+                        void copyLink(s.id as ScreenId);
+                        closeAll();
+                      },
                     )}
                     {enableRename &&
                       iconButton(

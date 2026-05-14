@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   suiLight,
   suiDark,
@@ -46,11 +47,42 @@ export function usePresentationConfig() {
   return ctx;
 }
 
+// PresentationConfigProvider requires React Router v6 — wrap the app in
+// <BrowserRouter> (or <MemoryRouter> for embedded environments) before
+// mounting this provider.
 export function PresentationConfigProvider({ children }: { children: ReactNode }) {
+  const [params, setParams] = useSearchParams();
+
   // Default to the Spring theme matching the Figma frame's color mode.
   // Override per-screen scaffold (e.g. Figma "Juno Light" → "junoLight").
-  const [themeOption, setThemeOption] = useState<ThemeOption>("light");
-  const [screen, setScreen] = useState<ScreenId>(DEFAULT_SCREEN);
+  // "light" is the default — omitted from the URL to keep clean URLs short.
+  const themeParam = params.get("theme") as ThemeOption | null;
+  const themeOption: ThemeOption =
+    themeParam && themeParam in themeMap ? themeParam : "light";
+  const setThemeOption = (t: ThemeOption) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (t === "light") next.delete("theme");
+        else next.set("theme", t);
+        return next;
+      },
+      { replace: false },
+    );
+
+  // DEFAULT_SCREEN is omitted from the URL so the base URL is clean on first load.
+  const screenParam = params.get("screen") as ScreenId | null;
+  const screen: ScreenId = screenParam ?? DEFAULT_SCREEN;
+  const setScreen = (s: ScreenId) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (s === DEFAULT_SCREEN) next.delete("screen");
+        else next.set("screen", s);
+        return next;
+      },
+      { replace: false },
+    );
 
   const value: PresentationConfigContextValue = {
     themeOption,
