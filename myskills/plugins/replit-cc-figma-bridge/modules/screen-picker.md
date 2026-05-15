@@ -63,6 +63,125 @@ The hover-revealed affordances inside the Export submenu (rename pencil on flows
 
 When customizing the FAB inside an installed project, route any new affordance through `iconButton` (or copy its class string verbatim) so every row stays visually consistent.
 
+## Menu positioning
+
+These are the Spring-specific patterns needed to make the two-level FAB menu stack behave correctly. They apply to the Theme submenu, the Export submenu, and any future submenu added above the Theme divider.
+
+### 1st-level menu: open upward from the FAB, with an `onClose` guard
+
+```tsx
+<Menu
+  anchorEl={menuAnchor}
+  placement="top-end"
+  open={Boolean(menuAnchor)}
+  onClose={() => {
+    // Guard — do not close while any 2nd-level submenu is open.
+    // Spring's clickaway fires the moment a submenu opens (the triggering
+    // click is "outside" the 1st menu's Paper), which collapses the whole
+    // stack without this check.
+    if (!exportOpen && !themeOpen) setMenuAnchor(null);
+  }}
+>
+```
+
+**Every 2nd-level submenu you add must be listed in this guard.** Omitting one causes the stack to collapse whenever that submenu opens.
+
+### 2nd-level submenus: anchor to the 1st menu's Paper, not the triggering MenuItem
+
+Anchoring a submenu directly to the `MenuItem` that triggered it puts the submenu's bottom at the row's midpoint — partway up the 1st menu. Anchor to the **content `<div>` of the 1st menu's Paper** instead, so both menus share the same bottom edge and the submenu reads as a visual extension of the 1st menu.
+
+**Setup (three steps):**
+
+1. State for the Paper content element:
+
+   ```tsx
+   const [fabMenuPaperEl, setFabMenuPaperEl] = useState<HTMLElement | null>(null);
+   ```
+
+2. Wire it on the 1st menu via `PopperPaperProps.contentRef`:
+
+   ```tsx
+   <Menu
+     placement="top-end"
+     PopperPaperProps={{ contentRef: setFabMenuPaperEl }}
+     ...
+   >
+   ```
+
+   `contentRef` targets the inner content `<div>` of the Paper — the actual visible menu bounds, with no animation wrapper or Paper padding.
+
+3. Use it as the anchor on every 2nd-level submenu, with `placement="left-end"`:
+
+   ```tsx
+   <Menu
+     anchorEl={fabMenuPaperEl ?? triggerItemEl}
+     placement="left-end"
+     ...
+   >
+   ```
+
+   `left-end` aligns the **end (bottom) edges** of both menus. The `?? triggerItemEl` fallback covers the first paint before the Paper ref attaches.
+
+For a 3rd level, mirror this pattern: expose the 2nd menu's Paper via `contentRef` and anchor the 3rd menu to it with `placement="left-end"`.
+
+### Viewport bounding
+
+Apply `maxHeight` + `overflowY: auto` on every submenu's `PopperPaperProps` so the menu never escapes the viewport on short screens:
+
+```tsx
+PopperPaperProps={{
+  style: {
+    width: "fit-content",
+    minWidth: 0,
+    maxHeight: "calc(100vh - 32px)",
+    overflowY: "auto",
+  },
+}}
+```
+
+The `32px` matches the FAB's bottom-right margin so the top of the menu never butts against the viewport edge.
+
+### Reflow when submenu content height changes at runtime
+
+Popper computes position on mount and on `window.resize` / scroll, but **not** when content inside the popper grows or shrinks. A submenu that has a collapsible section (e.g. a snapshot list that grows as the user adds snapshots, or a granular-controls caret) would push its bottom edge down on expand and break bottom alignment.
+
+**Option A — `window.resize` dispatch (simple, works today):**
+
+```tsx
+useEffect(() => {
+  if (!submenuOpen) return;
+  const id = requestAnimationFrame(() =>
+    window.dispatchEvent(new Event("resize")),
+  );
+  return () => cancelAnimationFrame(id);
+}, [collapsibleSectionOpen, submenuOpen]);
+```
+
+`requestAnimationFrame` defers the dispatch until after the DOM has reflowed with the new height, so Popper sees the final size when it recalculates. With `placement="left-end"` and the Paper as anchor, the **top extends upward** on expand and pulls back down on collapse. The bottom stays pinned.
+
+**Option B — `ResizeObserver` (more surgical, preferred when the demo is embedded in a parent frame):**
+
+```tsx
+useEffect(() => {
+  if (!submenuOpen || !fabMenuPaperEl) return;
+  const ro = new ResizeObserver(() =>
+    window.dispatchEvent(new Event("resize")),
+  );
+  ro.observe(fabMenuPaperEl);
+  return () => ro.disconnect();
+}, [submenuOpen, fabMenuPaperEl]);
+```
+
+`ResizeObserver` fires only when the observed element's size actually changes — not on every unrelated window resize. Prefer this when the demo is hosted inside a resizable iframe or a Figma prototype frame, where spurious window resize events are common.
+
+### Quick checklist when changing the menu
+
+- [ ] Every new 2nd-level submenu must be added to the 1st menu's `onClose` guard — omitting one collapses the stack when that submenu opens.
+- [ ] Anchor 2nd-level submenus to `fabMenuPaperEl` (`contentRef`), not to their triggering `MenuItem`.
+- [ ] Apply `maxHeight: "calc(100vh - 32px)"` + `overflowY: auto` to every submenu's `PopperPaperProps`.
+- [ ] If a submenu section can change height at runtime, add `collapsibleSectionOpen` to the `useEffect` dep list (Option A) or attach a `ResizeObserver` (Option B).
+- [ ] For a 3rd level, expose the 2nd menu's Paper via `contentRef` and mirror the `left-end` anchor pattern.
+
 ## Architecture
 
 ```
