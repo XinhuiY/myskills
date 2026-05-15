@@ -23,7 +23,7 @@ Four core modules support that bridge, plus two optional add-ons:
 2. **Build** the screen using production-accurate Spring UI patterns.
 3. **Register** the screen in the FAB and `SCREENS.md`.
 4. **Export** the screen back to Figma using the Spring DS library's persistent keys.
-5. **Snapshots** *(optional)* — let designers save runtime state variants of any code screen, rendered as indented children of their parent step in the Export submenu. localStorage-only, no backend.
+5. **Snapshots** — wire an adapter whenever the host component owns replayable state (form fields, toggles, selections, nav order, etc.) so designers can capture and replay state variants. Part of the standard screen-picker install path; skip only for pure / stateless screens. localStorage-only, no backend.
 6. **Rename in-app** *(optional)* — rename flows / steps from inside the running app via source-file rewrites. Small Express endpoint, **no authz — local dev tools only**.
 
 Read only the modules relevant to the current task. For copy-pasteable prompts the user can hand to any agent, see `USAGE.md` in this skill folder.
@@ -36,7 +36,7 @@ Read only the modules relevant to the current task. For copy-pasteable prompts t
 | Building a new Spring UI demo (sign-in, settings, marketing card…)   | `modules/build-in-replit.md`    |
 | Adding the screen-picker FAB to a demo, or registering a new screen  | `modules/screen-picker.md`      |
 | Exporting a `.tsx` source file to a Figma frame                      | `modules/export-to-figma.md`    |
-| Adding runtime snapshot variants of a screen                         | `modules/snapshots.md`          |
+| Extending or customizing the snapshot adapter (wired during screen-picker install) | `modules/snapshots.md` |
 | Renaming a flow / step from inside the running app                   | `modules/rename-in-app.md`      |
 
 ## Typical workflow
@@ -51,8 +51,8 @@ implement-from-figma          →   build-in-replit            →   screen-pick
 Fetch design context + screenshot  Spring class structure          Install FAB scaffold          Read SCREENS.md to find JSX
 Map data-name → Spring component   Color & typography tokens       Append { flow, step }         Look up text/color/component keys
 Extract LEAF tokens (not parent)   Layout & data-test-automation   Branch host component         Bind nodes to Spring DS library
-Confirm icon substitutions         Tailwind config                 Update SCREENS.md             Upload assets, set properties
-Verify static-asset MIME + size
+Confirm icon substitutions         Tailwind config                 Lift state + wire adapter     Upload assets, set properties
+Verify static-asset MIME + size                                    Update SCREENS.md
 Never invent content
 ```
 
@@ -64,8 +64,8 @@ build-in-replit               →   screen-picker            →   export-to-fig
 Pick layout from brief            Install FAB scaffold          Read SCREENS.md to find JSX
 Spring class structure            Append { flow, step }         Look up text/color/component keys
 Color & typography tokens         Branch host component         Bind nodes to Spring DS library
-Layout & data-test-automation     Update SCREENS.md             Upload assets, set properties
-Tailwind config
+Layout & data-test-automation     Lift state + wire adapter     Upload assets, set properties
+Tailwind config                   Update SCREENS.md
 ```
 
 `implement-from-figma` is only consulted on Path A. The other three modules are common to both.
@@ -92,17 +92,17 @@ Persistent Spring DS Figma library keys for text styles, color variables, and co
 
 > **Prerequisite:** the snippets in this module call the Figma **plugin API** (`figma.importStyleByKeyAsync`, etc.). They run in **Claude Code** with a Figma plugin MCP attached — not in Replit, whose Figma MCP only reads context, takes screenshots, uploads assets, and manages Code Connect. The module's "Prerequisite" section spells this out and lists which steps can be done from Replit (asset upload, Code Connect mapping) vs which require Claude Code (frame construction).
 
-### `modules/snapshots.md` (optional)
+### `modules/snapshots.md`
 
 Capture the current UI state of a code-defined screen as a localStorage-only "variant" rendered as an indented child of its parent step in the Export submenu. Per-project state shape via a small `ScreenStateAdapter<TState>` contract; the FAB handles save / apply / delete / "selected indicator" derivation generically. Clicking the parent step while on its screen calls `adapter.reset()` so the parent feels like a restore point. Optional `describePromptDelta` on the adapter feeds the share button's snapshot prompt.
 
-Off by default; enable via `<PresentationConfigFab screenStateAdapter={...} />`.
+On by default whenever the host component owns replayable state (form fields, toggles, selections, ordering, etc.). The install procedure inspects for such state, lifts it to `ThemedApp`, and wires an adapter. Pass no `screenStateAdapter` only when the screens are pure / stateless.
 
 ### `modules/rename-in-app.md` (optional)
 
 Pencil-icon affordances on flows / steps in the Export submenu. POSTs to `/api/screens/rename-flow` and `/rename-step`, which rewrite all four bridge surfaces (`screens.ts`, `App.tsx`, page `.tsx`, `SCREENS.md`) using a plan-then-commit strategy. Backend ships as `templates/server/` files. **No authz — local dev tools only.** When combined with `snapshots.md`, the endpoint returns a `{ remap }` map so the FAB can patch any snapshot whose `screenId` embedded the renamed flow/step.
 
-Off by default; enable via `<PresentationConfigFab enableRename />`. Creating / deleting screens is intentionally NOT in this module — both remain code edits via Operation 2 of `screen-picker.md`.
+**On by default** (`enableRename={true}`) — pencil affordances appear immediately once the server routes are mounted. Pass `<PresentationConfigFab enableRename={false} />` to hide them (e.g. a published demo where the rename endpoints aren't reachable). Creating / deleting screens is intentionally NOT in this module — both remain code edits via Operation 2 of `screen-picker.md`.
 
 ## Templates
 
@@ -116,6 +116,7 @@ Used by the screen-picker install workflow:
 - `templates/server/registerScreenRenameRoutes.ts` — Express helper that mounts `POST /api/screens/rename-flow` and `/rename-step`.
 - `templates/index.ts` — barrel export.
 - `templates/SCREENS.md` — table template with Shell, Registry note, Screens (Flow / Step / ID columns), Static assets, prompt template, and a pointer to "Adding a new screen".
+- `templates/DS_KEYS.md` — project-local cache seeded on first export. Three tables: icon keys (`data-icon` → Figma component key), undocumented component `setProperties()` property names, and additional color / text style keys. Lives next to `SCREENS.md` in the artifact root; never sent back to the skill repo.
 
 ## Conventions enforced across modules
 

@@ -85,9 +85,13 @@ const icons = Array.from(root.querySelectorAll("[data-icon]")).map(el => ({
 }));
 
 // 2. For each Spring icon (data-icon does NOT start with "custom:"):
+//    Use the Spring Icons library key — NOT the Spring DS key (icons aren't in that library).
+//    search_design_system does semantic matching; if the result isn't the expected icon,
+//    check DS_KEYS.md for a previously cached key, or look up the component directly in
+//    the "Spring Icons (Sorted)" file.
 const results = await search_design_system({
   query: name,                         // e.g. "HomeMd", "CaretDownMd"
-  includeLibraryKeys: [SPRING_LIBRARY_KEY],
+  includeLibraryKeys: [SPRING_ICONS_LIBRARY_KEY],  // see Figma Library Keys section
   includeComponents: true,
 });
 const iconKey = results.components[0].key;
@@ -105,7 +109,7 @@ buttonInstance.setProperties({ "Icon#360:0": iconComponent.id });
 
 **Why this works:** the `spring-icons` skill enforces that `data-icon` always equals the exact Spring component name. So React → DOM → Figma is lossless — no fuzzy matching, no per-export lookup table. Adding a new icon to the React app makes it round-trippable as long as it's registered in the icon map with the right `name`.
 
-**Common icon keys** discovered during exports should be appended to a table here as you go (same pattern as the component set keys above), so future runs can skip `search_design_system`.
+Append newly discovered icon keys to `DS_KEYS.md` in the artifact root (next to `SCREENS.md`). If `DS_KEYS.md` doesn't exist yet, copy it from `templates/DS_KEYS.md`. This keeps accumulation project-local — no need to PR back to the skill repo.
 
 ---
 
@@ -158,6 +162,14 @@ All from the Spring DS `Color` variable collection. Use `setBoundVariableForPain
 | `bg-neutral-b4` / `text-neutral-b4` | `Neutral/b4 (Container)` | `c872615433733590fe6087b5bb6a13a4409216c1` |
 | `bg-primary-b` | `Primary/b (Rest, Focused)` | `44a2cb0c3edd68db0110952dd4eb71d5b5235687` |
 | `text-primary-f` *(see pitfall below)* | `Neutral/static-w0` | `8e16e7540b43b5233f3a65a52465a013c60f2d1e` |
+| `bg-danger-t10` / `text-danger-t10` | `Danger/t10` | `908311bd66baf8740334f907efa825a0d2f46907` |
+| `bg-danger-t20` / `text-danger-t20` | `Danger/t20` | `0d4574fb022d6fff66ebe7ab4a6970c4eac7a07c` |
+| `text-danger-f` | `Danger/f (Rest)` | `97bed1633c9ba238ec36032820454aef3400deb2` |
+| `bg-danger` / `text-danger` | `Danger/DEFAULT (Rest)` | `3d58a87325d43b4d79b71a1ea409d8678f659909` |
+| `bg-success-t10` / `text-success-t10` | `Success/t10` | `1ecc7929cd49572a0e65a13e5ffb8b13faf3c3d4` |
+| `bg-success-t20` / `text-success-t20` | `Success/t20` | `f12eec0faaca550dbcf68c9517e25209d3b5eea7` |
+| `text-success-f` | `Success/f (Rest)` | `32548a353e53cb988f00cd389f760c00b1a79fdd` |
+| `bg-success` / `text-success` | `Success/DEFAULT (Rest)` | `374778322f298ea27a7fb830449bb84e774b909e` |
 
 ---
 
@@ -174,6 +186,24 @@ All from the Spring DS `Color` variable collection. Use `setBoundVariableForPain
 | `<Link>` | Link | `cba8fe11ec4c98616ed32aa9d00c11d7216b52ca` |
 | `<Alert>` | Alert | `2adb29720a880f65133125589e3ad283454b4611` |
 | `<Divider />` | Divider | `505c08ba53ad79ddaeab27214030f83d43e48bee` |
+| `<Switch>` | Switch | `04e2c8e24b3a4d0b5e212ff381af70ea03915a88` |
+| `<Avatar>` (no presence indicator) | Avatar | `5c8d5c5d47115f7857cb77a61871036561a3f4dd` |
+| `<Avatar>` (with presence indicator) | Avatar With Presence | `7931e27d6b28d7bed3ace256cf7f0f792d72e076` |
+| `<Tag>` | Tag | `09c27e1530c0e2ccffdf848ae7a117fb57839204` |
+| `<Chip>` | Chip | `9f54cfe0d4aa80e2fa129e229468564f071fc981` |
+| `<Badge>` | Badge | `6eebc614a66ef765f683068a7151a0c003b6c8b4` |
+| `<Tabs>` | Tabs | `09cfedc2332a7e522e1686d20075033d08c4f8f2` |
+| `<Tab>` (standard variant) | Tab - Standard | `ea8b8184e80704805de54ceeaca1b0c52b795aa2` |
+| `<Tab>` (pill variant) | Tab - Pill | `5af12995abfea37460bc193db12f6cc05436433b` |
+| `<Tooltip>` | Tooltip | `c3431dce19551d340d2bebef90815d362fa74eac` |
+| `<Dialog>` | Dialog | `3f20ea64c7682ff3dee705b727e5e11f9c5f49ee` |
+| `<Snackbar>` | Snackbar | `f67940dc7f8fd1246fa41b839677d844398f2398` |
+| `<Stepper>` | Stepper | `0c7a6b69591baabb970816bf42af05abb0a4a59d` |
+| `<Step>` (inside Stepper) | Stepper/Step | `60ca16dbe80783cc212839d8243887965efa49bc` |
+| `<MenuItem>` | MenuItem | *(key not yet confirmed — run Step 1 lookup and add to DS_KEYS.md)* |
+| `<Menu>` | Menu | *(PENDING — MCP transport dropped both attempts; run Step 1 lookup and add to DS_KEYS.md)* |
+
+For any component not in this table (Drawer, Radio, Select, etc.), inspect `componentPropertyDefinitions` (see "Process: when a variant cannot be found" → Step 1) and record the key in `DS_KEYS.md`.
 
 ### Component property names for `instance.setProperties({})`
 
@@ -275,15 +305,153 @@ instance.setProperties({
 });
 ```
 
+#### `<Switch>`
+```js
+instance.setProperties({
+  "Size": "Medium",          // inspect componentPropertyDefinitions for full size range
+  "State": "Default",        // Default | Hover | Disabled
+  // Checked/unchecked is a separate variant property — inspect componentPropertyDefinitions
+  // for the exact key name (commonly "Checked" or "Selected") and add to DS_KEYS.md
+});
+```
+
+#### `<Avatar>` / `<Avatar>` with presence
+```js
+// No-presence variant (key: 5c8d5c5d47115f7857cb77a61871036561a3f4dd):
+instance.setProperties({
+  "Size": "XXLarge",         // XSmall | Small | Medium | Large | XLarge | XXLarge
+  "Variant": "Circle",       // Circle | Square (inspect for full set)
+  // Text/image slot keys (initials label, image source) require componentPropertyDefinitions
+});
+
+// With-presence variant (key: 7931e27d6b28d7bed3ace256cf7f0f792d72e076):
+instance.setProperties({
+  "Size": "XXLarge",
+  "Variant": "Circle",
+  // Presence/Status slot key requires componentPropertyDefinitions
+});
+```
+
+> **Choosing between the two Avatar sets:** use the presence variant only when the JSX renders a presence/status indicator alongside the avatar. For a plain avatar, always use the no-presence set.
+
+#### `<Tag>`
+```js
+instance.setProperties({
+  "Color": "Default",        // Default | Primary | Success | Warning | Danger — inspect for full set
+  "Variant": "Filled",       // Filled | Outlined
+  // Label text key requires componentPropertyDefinitions (e.g. "Label#xxx:0")
+  // Icon slot key (if applicable) also requires componentPropertyDefinitions
+});
+```
+
+#### `<Chip>`
+```js
+instance.setProperties({
+  "Color": "Default",        // Default | Primary — inspect for full set
+  "Size": "Large",           // Small | Medium | Large
+  // "Truncate" boolean and label text key require componentPropertyDefinitions
+});
+```
+
+#### `<Badge>`
+```js
+instance.setProperties({
+  "Variant": "Contained",    // Contained | Outlined
+  "Color": "Primary",        // Primary | Secondary | Danger | Success — inspect for full set
+  "Size": "Small",           // Small | Medium | Large
+  // Count/label text key requires componentPropertyDefinitions
+});
+```
+
+#### `<Tabs>` / `<Tab>`
+```js
+// Tabs wrapper (key: 09cfedc2332a7e522e1686d20075033d08c4f8f2):
+instance.setProperties({
+  "Variant": "Standard",     // Standard | Pill
+});
+
+// Individual Tab — Standard (key: ea8b8184e80704805de54ceeaca1b0c52b795aa2):
+instance.setProperties({
+  "State": "Default",        // Default | Hover | Active | Disabled — inspect for full set
+  // Label text and icon slot keys require componentPropertyDefinitions
+});
+
+// Individual Tab — Pill (key: 5af12995abfea37460bc193db12f6cc05436433b):
+instance.setProperties({
+  "State": "Default",
+});
+```
+
+#### `<Tooltip>`
+```js
+instance.setProperties({
+  // All property keys (placement, label text) require componentPropertyDefinitions —
+  // Tooltip Code Connect returned no props. Run:
+  //   const set = await figma.importComponentSetByKeyAsync("c3431dce19551d340d2bebef90815d362fa74eac");
+  //   return set.componentPropertyDefinitions;
+  // then add the full block to DS_KEYS.md.
+});
+```
+
+#### `<Dialog>`
+```js
+instance.setProperties({
+  "Size": "Large",           // Small | Medium | Large | XLarge
+  // Slot keys for title, content, and action areas require componentPropertyDefinitions.
+  // Dialog children (DialogTitle, DialogContent, DialogActions) are separate auto-layout
+  // frames to create and parent, not instance properties.
+});
+```
+
+#### `<Snackbar>`
+```js
+instance.setProperties({
+  // All property keys require componentPropertyDefinitions — Snackbar Code Connect
+  // returned no props. Run:
+  //   const set = await figma.importComponentSetByKeyAsync("f67940dc7f8fd1246fa41b839677d844398f2398");
+  //   return set.componentPropertyDefinitions;
+  // Common expected props: Severity (Info | Warning | Error | Success), message text key.
+  // Add the full block to DS_KEYS.md after lookup.
+});
+```
+
+#### `<Stepper>` / `<Step>`
+```js
+// Stepper wrapper (key: 0c7a6b69591baabb970816bf42af05abb0a4a59d):
+instance.setProperties({
+  // fixedStepWidth in React likely maps to a boolean or Layout variant in Figma.
+  // Inspect componentPropertyDefinitions to confirm key name, then add to DS_KEYS.md.
+});
+
+// Individual Step (key: 60ca16dbe80783cc212839d8243887965efa49bc):
+instance.setProperties({
+  "State": "Default",        // Default | Active | Completed | Error — inspect for full set
+  // Label/description text keys require componentPropertyDefinitions
+});
+```
+
+#### `<MenuItem>`
+```js
+instance.setProperties({
+  // Component set key not yet confirmed. Run search_design_system for "MenuItem" scoped
+  // to the Spring DS library key, then inspect componentPropertyDefinitions. Record in DS_KEYS.md.
+  // Expected props: label text key, icon slot key, State (Default | Hover | Disabled).
+});
+```
+
 ---
 
-## Figma Library Key
+## Figma Library Keys
 
-```
-lk-32e6af93b330295d762db67dc330a085798333c302035e0b05e0ce1a530493a3d7b845d8ce58cd9269cfbb3291e68380a4c1272c089d56f88d4108fe9c054708
-```
+Three libraries are attached to the Spring Design System file. Pass the appropriate key(s) to `search_design_system` as `includeLibraryKeys: [...]` to scope searches.
 
-Pass this to `search_design_system` as `includeLibraryKeys: [...]` to scope searches to Spring DS only.
+| Library | Use for | Key |
+|---|---|---|
+| Spring Design System | Components, color variables, text styles | `lk-32e6af93b330295d762db67dc330a085798333c302035e0b05e0ce1a530493a3d7b845d8ce58cd9269cfbb3291e68380a4c1272c089d56f88d4108fe9c054708` |
+| Spring Icons (Sorted) | Icon component lookup by name | `lk-192fdb33f4bc6e44adb1f1a91ff157d0be75811c95f73cbc42998bafabb97844b0a662f3afc73a0b020ce1a37408de16ed11ce678b3b978c65b8267f8b277cd6` |
+| Spring RingEX Components | App-level composite patterns (AI Hub, App Bar, etc.) | `lk-df84671d797640afea517e3c9aa92aa3bd369822a8599b2427fc85edc9ddc0c5fd7d1b9c3888c2d2ac49c3c825822c56d7a069b4783c62e5d3a75dc020a6ddba` |
+
+> **Icon searches must use the Spring Icons library key**, not the Spring DS key. The Spring DS library does not contain the icon component set — icon searches scoped to it will return zero or unrelated results.
 
 ---
 

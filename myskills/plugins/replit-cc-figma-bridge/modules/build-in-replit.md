@@ -220,7 +220,7 @@ Spring UI does not ship icons inside `@ringcentral/spring-ui` — they live in a
 
 ## 9. Syntax reference: combining the pieces
 
-> **This is not a layout to copy.** The snippet below is a single contrived example showing how `ThemeProvider`, Spring components (`Button`, `Link`), color tokens (`text-neutral-b0`, `text-neutral-b2`), typography classes (`typography-display3`, `typography-mainText`, `typography-subtitle`), and `data-test-automation-id`s coexist in one React file. The wrapper structure, card chrome, button choices, and footer are illustrative filler — your brief decides actual layout, content, and brand chrome.
+The snippet below is a single contrived example showing how `ThemeProvider`, Spring components (`Button`, `Link`), color tokens (`text-neutral-b0`, `text-neutral-b2`), typography classes (`typography-display3`, `typography-mainText`, `typography-subtitle`), and `data-test-automation-id`s coexist in one React file. The wrapper structure, card chrome, and button choices are illustrative filler — your brief decides actual layout and brand chrome.
 
 ```tsx
 import { Button, Link, ThemeProvider, suiLight } from "@ringcentral/spring-ui";

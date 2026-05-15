@@ -43,17 +43,41 @@ This rule lives in repo memory (`replit.md` "Theme handling" section). Keep both
 
 ### Phase 2 — Component map (Figma `data-name` → Spring component) BEFORE writing JSX
 
-For every node with `data-name="…"` (Button, Icon Button, Tag, Tooltip, Avatar, Menu, TextField, Checkbox, Switch, Tabs, Stepper, Dialog, Drawer, Snackbar, Alert, Badge, Divider, Empty State, Page Header, etc.), map it to a Spring component. The full inventory with prop signatures and variant unions lives in the project's memory file (e.g. `replit.md` "Spring component inventory" section); if it doesn't exist, build it once from `node_modules/@ringcentral/spring-ui/dist/components/` and `.agents/skills/spring-ui-react/references/components/`.
+For every node with `data-name="…"`, resolve it to a Spring component using the table below before writing any JSX. React prop signatures and variant unions can be verified from `node_modules/@ringcentral/spring-ui/dist/components/`; Figma `setProperties()` names for components not yet in `modules/export-to-figma.md` are accumulated in `DS_KEYS.md` (artifact root).
 
-**Rule:** never roll your own with `<button>`/`<input>`/`<a>`/`<div role="…">` if a Spring component exists. If a Figma node looks interactive but `data-name` says "Frame" or "Container", still ask: "is this an interactive surface?" — if yes, Spring component.
+#### `data-name` → Spring component lookup
 
-Common silent regressions this catches:
+| Figma `data-name` | Spring component | Notes |
+|---|---|---|
+| `Button` | `<Button>` | Translate `variant` / `color` / `size` from the compiled `sui-button-*` class string |
+| `Icon Button` / `IconButton` | `<IconButton>` | Most common: `variant="icon"`; also `"outlined"` / `"contained"` / `"inverted"` |
+| `Text Field` / `TextField` | `<TextField>` | |
+| `Checkbox` | `<Checkbox>` | |
+| `Switch` | `<Switch>` | |
+| `Link` | `<Link>` | |
+| `Tag` / `Chip` | `<Tag>` | Includes "Active" pills and status badges — never `<span>` |
+| `Avatar` | `<Avatar>` | Presence dot = absolute `<div>` overlaid on the Avatar wrapper; do not replace Avatar with a hand-rolled circle |
+| `Tooltip` | `<Tooltip>` | |
+| `Menu` | `<Menu>` | |
+| `Menu Item` / `MenuItem` | `<MenuItem>` | |
+| `Alert` | `<Alert>` | |
+| `Badge` | `<Badge>` | |
+| `Divider` | `<Divider />` | Set `Orientation` explicitly — the Figma defaultVariant is Vertical, not Horizontal |
+| `Empty State` | `<EmptyState>` | |
+| `Stepper` | `<Stepper>` | |
+| `Tabs` / `Tab` | `<Tabs>` / `<Tab>` | |
+| `Dialog` | `<Dialog>` | |
+| `Drawer` | `<Drawer>` | |
+| `Snackbar` | `<Snackbar>` | |
+| `Page Header` | `<PageHeader>` | |
+| `ic_*` / frame labeled with icon intent (`data-name="CaretDown"`, `data-name="HomeMd"`) | Spring icon via `iconMap` | See Phase 4 decision tree |
+| Header dropdown `Label ▾` | `<Button variant="text" endIcon={CaretDownMd}>` | NOT `<button>` or `<div>`; `CaretDownMd` from `@ringcentral/spring-icon` |
+| Overflow / `⋯` / three-dot trigger | `<IconButton variant="icon" size="small">` | NOT bare SVG |
+| Text-only CTA with no outlined/contained chrome | `<Button variant="text" color="primary">` | NOT `<a>` or `<div>` |
+| `Frame` / `Container` — no hover state, no click annotation | Layout wrapper only | Use Tailwind utilities; no Spring component needed |
+| `Frame` / `Container` — has hover state or click annotation | Investigate: likely `<Button>`, `<Link>`, or a card component | Never guess — look for hover/focus/click signals in the Figma frame before deciding |
 
-- Text-only links/buttons → `Button variant="text" color="primary|neutral"`, not `<div>` or `<a>`.
-- Header dropdowns ("Label ▾") → `Button variant="text" endIcon={CaretDownMd}`, not raw `<button>`.
-- Card overflow "⋯" → `IconButton variant="icon" size="small"`, not bare SVG.
-- Presence dots → wrap `Avatar` and absolute-position the dot; don't replace Avatar with a hand-rolled circle.
-- "Active"/status pills → `Tag`, not styled `<span>`.
+**Rule:** never roll your own with `<button>`/`<input>`/`<a>`/`<div role="…">` if a Spring component exists. If a node is interactive but `data-name` says "Frame" or "Container", apply the last two rows above before defaulting to a layout wrapper.
 
 ### Phase 3 — Token extraction at the LEAF, not the container
 
@@ -74,13 +98,9 @@ This is the single most common failure. The Figma dump nests like this:
 
 The container divs carry **layout** (`flex`, `gap`, `bg`, `border`). The font/color/size tokens live **on the deepest `<p>`/`<span>`**. Reading only the container makes you default to whatever felt right.
 
-**Mandatory grep before implementing each text element:**
+**Before implementing each text element, find its typography token in the saved reference file:**
 
-```bash
-rg -B1 -A2 '<text label>' .local/refs/<screen>.tsx.txt | rg 'typography/[a-z]+/fontsize'
-```
-
-If that returns nothing, the text isn't a leaf in this dump — keep digging into the surrounding JSX until you find the `<p>`/`<span>` that owns the typography variables.
+Open `.local/refs/<screen>.tsx.txt` and locate the `<p>` or `<span>` that renders the text label. Look for a `typography/<name>/fontsize` CSS variable on that element — that is the leaf token to apply. If the element you found doesn't carry a typography variable, it's a container — keep digging into its children until you reach the element that owns the typography variables.
 
 #### Token translation (Figma var → Spring class)
 
@@ -128,9 +148,9 @@ Never silently fall back to `lucide-react`, `react-icons`, an inline SVG, or a "
 
 For every `<img>` you write (downloaded in phase 1 from the asset URLs in `getDesignContext`):
 
-1. `file <path>` to confirm the **bytes** match the **extension**. Figma sometimes serves SVG bytes from a `.png` URL — the browser refuses to decode and renders blank with no error. If `file` says SVG, rename the file and update the JSX `src`.
+1. Confirm the **bytes match the extension** — Figma sometimes serves SVG bytes from a `.png` URL (the browser refuses to decode and renders blank with no error). Open the downloaded file and check: if it begins with `<?xml` or `<svg`, rename it to `.svg` and update the JSX `src`.
 2. Set **both** `width` and `height` from Figma's parent frame. Setting only one dimension lets the asset's intrinsic ratio override and distort the design.
-3. `curl -sI http://localhost:80<asset path through artifact base>` — confirm 200 + correct `Content-Type` after the workflow restart. (Always go through the proxy at port 80, not the artifact's internal port.)
+3. After restarting the workflow, take a screenshot of the running preview and visually confirm each asset renders. A blank or broken image means the `Content-Type` or file extension is mismatched — recheck step 1.
 
 ### Phase 6 — Faithful content: never invent
 
@@ -149,9 +169,9 @@ If the user explicitly says "fill in realistic copy" — fine, but call out whic
 
 ## Pre-flight checklist (run before saying "done")
 
-From the artifact directory:
+**Run in the Replit shell** (from the artifact directory):
 
-```bash
+```sh
 # 1. TypeScript clean
 pnpm exec tsc -p tsconfig.json --noEmit
 
@@ -164,16 +184,16 @@ rg "<button|<input |<select |<textarea |<a href" src/components/
 # 4. Every interactive element has data-test-automation-id
 rg "<(Button|IconButton|TextField|Tag|Avatar|Menu|Link)" src/components/ \
   | rg -v "data-test-automation-id"
+```
 
-# 5. Static assets resolve
-curl -sI <each-asset-url>
+**Then call these Replit tools:**
 
-# 6. Restart workflow and screenshot the result
+```
 restart_workflow "<workflow name>"
 screenshot type=app_preview artifact_dir_name=<slug> path=/
 ```
 
-If any check fails, fix before claiming done.
+Confirm assets render in the screenshot (no blank images). If any check fails, fix before claiming done.
 
 ## Anti-pattern catalog
 

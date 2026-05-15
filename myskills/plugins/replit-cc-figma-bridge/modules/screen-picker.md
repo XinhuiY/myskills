@@ -236,7 +236,12 @@ Use when the artifact has no `src/presentation-config/` folder yet.
    - `const { screen, setScreen } = usePresentationConfig()`.
    - Replace branching on `step` with branching on the screen ID: `if (screen === "Sign in/Password") { ... }`.
    - Update internal navigation handlers to call `setScreen("<Flow>/<Step>")` instead of the local setter.
-   - Add a `// SCREEN: <Flow> / <Step> (see SCREENS.md)` comment immediately above each return branch — **including the final unconditional `return` for the default screen**, even though it has no `if` guard. `grep -n "// SCREEN:" src/App.tsx` should always return one match per screen.
+   - Add a `// SCREEN: <Flow> / <Step> (see SCREENS.md)` comment immediately above each return branch — **including the final unconditional `return` for the default screen**, even though it has no `if` guard. Searching `src/App.tsx` for `// SCREEN:` should return exactly one match per screen.
+4b. **Inventory replayable state and wire the snapshots adapter.** Walk every screen branch and list the local `useState` / context values that a designer would want to replay (form inputs, toggles, selected items, sort order, expanded sections). Exclude transient UI state (focus, hover, animation progress).
+
+   - **Empty list** → skip; render `<PresentationConfigFab />` with no adapter.
+   - **Non-empty list** → lift those `useState` calls from the screen component up to `ThemedApp`, pass them down as props, and implement `ScreenStateAdapter<TState>` inline in `ThemedApp` with `capture` / `apply` / `matches` / `reset` (and `describePromptDelta` when the prompt should reflect the state delta). See `modules/snapshots.md` "Step 0" for the canonical lift pattern.
+
 5. Wrap the app in `BrowserRouter` (from `react-router-dom`) and `PresentationConfigProvider`, then render `<PresentationConfigFab />` once near the root, inside the existing `ThemeProvider` chain. `PresentationConfigProvider` uses `useSearchParams` internally and **must be inside a `BrowserRouter`**. The `ThemeProvider` must read `themeObject` from `usePresentationConfig()` so theme switching works — which means the `ThemeProvider` lives **inside** the `PresentationConfigProvider`. Canonical shape:
 
    ```tsx
@@ -272,6 +277,8 @@ Use when the artifact has no `src/presentation-config/` folder yet.
 
    The `ThemedApp` indirection exists solely so `usePresentationConfig()` can be called inside the provider. Don't try to inline it.
 
+   > **Embedded environments:** If the demo runs inside a sandboxed iframe or a Figma prototype frame where `history.pushState` is blocked, replace `<BrowserRouter>` with `<MemoryRouter>` (same import, `react-router-dom`). URL-backed deep links (`?screen=`, `?theme=`) won't work, but the FAB picker functions normally.
+
 6. Copy `../templates/SCREENS.md` into the artifact root and fill in the rows for the existing screens.
 7. **Populate the Static assets table.** Walk every screen branch and the shell, list every image / SVG / video referenced in the JSX (e.g. `<img src={\`${base}ringcentral-logo.png\`} />`), and add one row per asset to the Static assets table mapping the JSX reference to its local path under `public/`. This is what lets export prompts upload assets to Figma instead of substituting placeholders.
 8. **Optional — FAB position.** The template positions the FAB bottom-right (`bottom: 24, right: 24`). If the brief calls for a different placement (e.g. top-right for a header-anchored demo), edit the inline `style` on the wrapping `<div>` in `PresentationConfigFab.tsx` — that's the only positioning code.
@@ -282,6 +289,19 @@ Use when the artifact has no `src/presentation-config/` folder yet.
     - `lucide-react` — the FAB imports `Pencil`, `Share2`, `Link`, and `Trash2` for its hover-revealed affordances. Most Replit fullstack-js / shadcn artifacts already ship it; install if missing.
 11. **Rename is on by default.** The FAB ships with `enableRename = true`, so the pencil-icon rename affordances appear on flows / steps / snapshots out of the box. They POST to `/api/screens/rename-flow` and `/api/screens/rename-step` — mount the server routes per `modules/rename-in-app.md` so the clicks actually rewrite source files. If you don't want the pencils (e.g. published demo, no server, or static-only artifact), pass `<PresentationConfigFab enableRename={false} />`.
 12. Run the artifact's typecheck script and fix any errors before handing back.
+
+13. **Install verification checklist — do not skip.** Before handing back, walk this checklist out loud and either tick each item or state explicitly why it does not apply. The defaults are ON; opting out is the exception, not the rule.
+
+    - [ ] **Adapter wired?** Did I list every `useState` / context value in every screen branch and decide per the rule in step 4b? If the list was non-empty, is `screenStateAdapter` passed into `<PresentationConfigFab />`? If I opted out, is the reason "every screen is genuinely stateless" — not "the project is frontend-only" or "I'd have to refactor"?
+    - [ ] **Rename routes mounted?** Does this monorepo contain any backend artifact (api-server, fullstack server, etc.)? If yes, did I mount `/api/screens/rename-flow` and `/api/screens/rename-step` per `modules/rename-in-app.md` and leave `enableRename` at its default? `enableRename={false}` is correct ONLY for static-only artifacts with no server anywhere in the workspace, or for published demos where the routes intentionally aren't exposed. "The user said frontend-only" is NOT a reason to skip — the rename routes live on a sibling artifact, not on the demo itself.
+    - [ ] **`SCREENS.md` populated?** Every row in `SCREENS` has a matching row in `SCREENS.md` with the correct file / component / line range, and every static asset is in the Static assets table.
+    - [ ] **Anchor comments present?** `grep "// SCREEN:" src/App.tsx src/pages` returns exactly one match per registered screen, including the default branch.
+    - [ ] **Smoke test the optional features.** Open the FAB → Export submenu, hover a step, and confirm: pencil icon visible (rename), `+ Snapshot` visible under the current step (snapshots), `Share2` and `Link` icons visible (always-on affordances). If any are missing and you didn't deliberately disable them, fix before handing back.
+
+    Common skip rationalizations to refuse:
+    - *"The user said no backend"* → applies to the demo's product surface, not to dev-tool routes on a sibling api-server. Mount the routes.
+    - *"Snapshots are optional"* → the FAB prop is optional; the install step is not. If state exists, wire the adapter.
+    - *"I'll add it later if they ask"* → they shouldn't have to ask. The skill defaults are deliberate.
 
 ## Operation 2 — Add a screen
 
@@ -327,9 +347,11 @@ Steps:
 
    The default screen (the final unconditional `return`) also needs its `// SCREEN:` anchor — see the install rules above. If the new screen is being made the default, swap the anchor comments accordingly and update `SCREENS[0]` so `DEFAULT_SCREEN` resolves to it.
 
-3. **SCREENS.md** — append a row to the Screens table. After the edit, recompute line ranges for every row whose JSX shifted (use `grep -n "// SCREEN:" src/App.tsx` plus the next `}` boundary) and rewrite all affected rows in the same edit so the table is accurate.
+3. **SCREENS.md** — append a row to the Screens table. After the edit, recompute line ranges for every row whose JSX shifted (find each `// SCREEN:` anchor in `src/App.tsx` and note the enclosing `}` boundary) and rewrite all affected rows in the same edit so the table is accurate.
 
 4. **Static assets** — if the new branch references any image / SVG / video that is not already in the Static assets table, add a row mapping the JSX reference to its local `public/` path. Verify the file actually exists at that path before adding the row.
+
+4b. **Extend the adapter** if the new screen introduces replayable state. If the new branch owns `useState` that designers would want to capture (form inputs, toggles, selections, etc.), lift it to `ThemedApp` and extend the existing `TState` type and adapter (`capture`, `apply`, `matches`, `reset`). Skip for purely visual / stateless screens.
 
 5. **Typecheck** — run the artifact's typecheck script. The screen ID type is derived from `SCREENS` via a template literal: `\`${ScreenDef["flow"]}/${ScreenDef["step"]}\``. If you typo the ID in `setScreen("...")` or `screen === "..."`, TypeScript will catch it.
 
@@ -355,7 +377,7 @@ Steps:
 - **`SCREENS` in `screens.ts` is the single source of truth** for what appears in the FAB and what screen IDs are valid. Never hand-maintain a parallel union elsewhere.
 - **Keep the FAB the single source of truth for the current screen.** Internal navigation (Next/Back buttons) must call `setScreen("<Flow>/<Step>")` so the FAB selection stays in sync.
 - **Default screen** is `SCREENS[0]`. To change the default, reorder `SCREENS` rather than overriding `DEFAULT_SCREEN`.
-- **Anchor comments are mandatory on every branch, including the default unconditional `return`.** `grep -n "// SCREEN:" src/App.tsx` is the canonical screen index.
+- **Anchor comments are mandatory on every branch, including the default unconditional `return`.** Searching `src/App.tsx` for `// SCREEN:` is the canonical screen index — one match per screen.
 - **Never delete a `SCREENS` row without also deleting the corresponding branch and `SCREENS.md` row.**
 - **Step names must be unique within a flow.** `"Sign in/Email"` and `"Home/Email"` are fine; two `"Sign in/Email"` entries would collapse in the menu and produce duplicate IDs.
 

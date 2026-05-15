@@ -2,6 +2,19 @@
 
 Five core entry points cover everything the skill does — with #4 split into two opt-in add-ons (`4a` snapshots, `4b` rename-in-app). Pick the one that matches your task and use the prompt template verbatim — the agent will load the right module(s) on its own.
 
+**Where each entry point runs:**
+
+| Entry point | Tool |
+|---|---|
+| 1 Build a new demo | Replit |
+| 2 Add a screen | Replit |
+| 3 Implement from Figma | Replit |
+| 4a Snapshots | Replit |
+| 4b Rename in-app | Replit |
+| **5 Export to Figma** | **Claude Code** (requires Figma Desktop MCP) |
+
+Entry points 1–4 use Replit's Figma MCP (`mcpFigma_getDesignContext`, `mcpFigma_getScreenshot`, etc.) to read designs and build screens. Entry point 5 uses Claude Code's Figma plugin API (`figma.importStyleByKeyAsync`, `instance.setProperties()`) to write frames back — that API is not available in Replit.
+
 ## Screen identity
 
 A **screen** is `{ flow, step }`:
@@ -54,7 +67,9 @@ Modules consulted: `implement-from-figma.md` (primary), `build-in-replit.md` (to
 
 Use when you want designers to be able to save runtime "variants" of an existing screen — sidebar collapsed, alt nav order, theme, etc. — without each variant becoming a new code screen.
 
-> Use the replit-cc-figma-bridge skill, `modules/snapshots.md`, to enable snapshots in `artifacts/<name>`. Wire up the `ScreenStateAdapter` for this app's replayable state (<list what should be captured: nav order, sidebar collapsed, theme, etc.>).
+**Prerequisite:** any state you want to capture must be accessible from outside the screen component. If the values are currently in local `useState` inside the screen, they need to be lifted to `ThemedApp` (passed down as props) before the adapter can read them. The module's "Step 0" section walks through this. Include it in your prompt so the agent handles the lift in the same pass:
+
+> Use the replit-cc-figma-bridge skill, `modules/snapshots.md`, to enable snapshots in `artifacts/<name>`. Follow Step 0 to lift any screen-local state that should be captured. Wire up the `ScreenStateAdapter` for this app's replayable state (<list what should be captured: email, password, nav order, sidebar collapsed, etc.>).
 
 Snapshots are localStorage-only — no backend changes needed.
 

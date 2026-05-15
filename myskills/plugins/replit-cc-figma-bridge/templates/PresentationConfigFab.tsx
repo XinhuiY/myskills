@@ -7,12 +7,14 @@ import {
   type ComponentType,
 } from "react";
 import {
+  Button,
   IconButton,
   Menu as MenuRaw,
   MenuHeader as MenuHeaderRaw,
   MenuItem as MenuItemRaw,
   MenuItemText as MenuItemTextRaw,
   MenuDivider as MenuDividerRaw,
+  TextField,
 } from "@ringcentral/spring-ui";
 import SettingsMd from "@ringcentral/spring-icon/SettingsMd";
 import CaretRightMd from "@ringcentral/spring-icon/CaretRightMd";
@@ -46,29 +48,25 @@ const MenuDivider = MenuDividerRaw as ComponentType<any>;
 
 // ─── Optional add-on props ──────────────────────────────────────────────
 //
-// The FAB is fully usable with no props (just renders the Theme section +
-// Export submenu). The optional props below light up two add-on features
-// documented in `modules/snapshots.md` and `modules/rename-in-app.md`:
+// The FAB is fully usable with no props (just renders Theme + Export menus).
+// The optional props below light up add-on features documented in
+// `modules/snapshots.md` and `modules/rename-in-app.md`:
 //
-//   - `screenStateAdapter` enables runtime SNAPSHOTS: each step in the
-//     Export submenu gets a "+ Snapshot" affordance (only when the live
-//     UI is on that screen) and any saved snapshots render as inline
-//     indented children. A snapshot is a captured-state variant of a
-//     code-defined screen; storage is `localStorage` only.
+//   - `screenStateAdapter` — omit only when the host component is stateless;
+//     pass an adapter whenever there is replayable state worth capturing.
+//     Each step in the Export submenu gets a "+ Snapshot" affordance and
+//     saved snapshots render as inline indented children. Storage is
+//     `localStorage` only.
 //
-//   - `enableRename` lights up pencil-icon affordances next to flows,
-//     steps, and snapshots. Snapshot renames are local; flow / step
-//     renames POST to `/api/screens/rename-flow` and `/rename-step`
-//     (mount via `registerScreenRenameRoutes` from the server template).
-//     After a successful source rewrite, Vite hot-reloads the page.
-//     **Default: true** — flows / steps / snapshots are renamable out
-//     of the box. Pass `enableRename={false}` to hide the pencils
-//     (e.g. for a published demo where the rename endpoints aren't
-//     mounted, or shouldn't be reachable).
+//   - `enableRename` (default: true) lights up pencil-icon rename
+//     affordances next to flows, steps, and snapshots. Flow/step renames
+//     POST to `/api/screens/rename-flow` and `/rename-step` (mount via
+//     `registerScreenRenameRoutes` from the server template). Pass
+//     `enableRename={false}` to hide the pencils for published demos where
+//     the rename endpoints aren't mounted or shouldn't be reachable.
 export interface PresentationConfigFabProps<TState = unknown> {
   screenStateAdapter?: ScreenStateAdapter<TState>;
   enableRename?: boolean;
-  // Override snapshot localStorage key (default: "fab-snapshots-v1").
   snapshotsStorageKey?: string;
 }
 
@@ -79,16 +77,20 @@ export function PresentationConfigFab<TState = unknown>({
 }: PresentationConfigFabProps<TState> = {}) {
   const fabRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  // The Export submenu opens as a 2nd-level Menu anchored to the Export
-  // MenuItem. Tracking its anchor element separately lets it stay open
-  // while the main menu remains open behind it.
+
+  // 2nd-level submenu anchors. Each tracks the triggering MenuItem element
+  // and is used as a first-paint fallback before fabMenuPaperEl attaches.
   const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
   const exportOpen = Boolean(exportAnchor);
-  // Theme picker is a 2nd-level submenu mirroring Export, anchored to the
-  // "Theme" MenuItem in the main FAB menu. Keeps the main menu compact
-  // regardless of how many themes ship.
   const [themeAnchor, setThemeAnchor] = useState<HTMLElement | null>(null);
   const themeOpen = Boolean(themeAnchor);
+
+  // Inner content <div> of the 1st menu's Paper — primary anchor for all
+  // 2nd-level submenus. Anchoring to the Paper (not the triggering MenuItem)
+  // keeps both menus' bottom edges aligned via placement="left-end".
+  // Wired via PopperPaperProps.contentRef on the main menu below.
+  // See modules/screen-picker.md "Menu positioning" for the full rationale.
+  const [fabMenuPaperEl, setFabMenuPaperEl] = useState<HTMLElement | null>(null);
 
   const { themeOption, setThemeOption, screen, setScreen } =
     usePresentationConfig();
@@ -97,22 +99,24 @@ export function PresentationConfigFab<TState = unknown>({
     setExportAnchor(null);
     setThemeAnchor(null);
     setOpen(false);
+    setFabMenuPaperEl(null);
   };
 
-  // ─── Snapshot state (only meaningful when adapter is provided) ──────
+  // ─── Snapshot state ─────────────────────────────────────────────────
   const [snapshots, setSnapshots] = useState<Snapshot<TState>[]>(() =>
     screenStateAdapter ? loadSnapshots<TState>(snapshotsStorageKey) : [],
   );
   useEffect(() => {
     if (screenStateAdapter) saveSnapshots(snapshots, snapshotsStorageKey);
   }, [snapshots, screenStateAdapter, snapshotsStorageKey]);
+
   const snapshotsByScreen = useMemo(
     () => groupSnapshotsByScreen(snapshots),
     [snapshots],
   );
+
   // Which snapshot (if any) the live UI currently matches. Pure state
-  // comparison — any user edit immediately clears the indicator without
-  // bespoke "last applied" bookkeeping.
+  // comparison — any user edit immediately clears the indicator.
   const appliedSnapshotId = useMemo(() => {
     if (!screenStateAdapter) return null;
     for (const snap of snapshots) {
@@ -122,18 +126,55 @@ export function PresentationConfigFab<TState = unknown>({
     return null;
   }, [snapshots, screen, screenStateAdapter]);
 
+  // Reflow — Popper does not observe content-size changes inside a popper.
+  // When snapshots are added/removed the Export submenu changes height;
+  // dispatching a resize event after the DOM has reflowed forces Popper to
+  // recompute, keeping the bottom edges pinned while the top grows upward.
+  useEffect(() => {
+    if (!exportOpen) return;
+    const id = requestAnimationFrame(() =>
+      window.dispatchEvent(new Event("resize")),
+    );
+    return () => cancelAnimationFrame(id);
+  }, [snapshots.length, exportOpen]);
+
+  // ─── Inline name-prompt ─────────────────────────────────────────────
+  // Replaces window.prompt() with a Spring TextField + Button overlay —
+  // accessible, non-blocking, and on-brand. Renders above all menus.
+  const [namePrompt, setNamePrompt] = useState<{
+    title: string;
+    onConfirm: (value: string) => void;
+  } | null>(null);
+  const [namePromptValue, setNamePromptValue] = useState("");
+
+  function openNamePrompt(
+    title: string,
+    defaultValue: string,
+    onConfirm: (value: string) => void,
+  ) {
+    setNamePromptValue(defaultValue);
+    setNamePrompt({ title, onConfirm });
+  }
+
+  function confirmNamePrompt() {
+    const trimmed = namePromptValue.trim();
+    if (!trimmed || !namePrompt) return;
+    namePrompt.onConfirm(trimmed);
+    setNamePrompt(null);
+  }
+
+  // ─── Snapshot operations ─────────────────────────────────────────────
   function captureCurrentSnapshot(screenId: string) {
     if (!screenStateAdapter) return;
-    const name = window.prompt("Snapshot name");
-    if (!name || !name.trim()) return;
-    const snap: Snapshot<TState> = {
-      id: makeSnapshotId(),
-      screenId,
-      name: name.trim(),
-      createdAt: Date.now(),
-      state: screenStateAdapter.capture(),
-    };
-    setSnapshots((prev) => [...prev, snap]);
+    // Capture state immediately (before prompt or closeAll), so the snapshot
+    // reflects the UI at the moment the user clicked "+ Snapshot".
+    const state = screenStateAdapter.capture();
+    openNamePrompt("Name this snapshot", "", (name) => {
+      setSnapshots((prev) => [
+        ...prev,
+        { id: makeSnapshotId(), screenId, name, createdAt: Date.now(), state },
+      ]);
+    });
   }
 
   function applySnapshot(snap: Snapshot<TState>) {
@@ -147,9 +188,10 @@ export function PresentationConfigFab<TState = unknown>({
   }
 
   function renameSnapshotPrompt(snap: Snapshot<TState>) {
-    const next = window.prompt("Rename snapshot", snap.name);
-    if (!next || !next.trim() || next.trim() === snap.name) return;
-    setSnapshots((prev) => renameSnapshotInList(prev, snap.id, next.trim()));
+    openNamePrompt("Rename snapshot", snap.name, (next) => {
+      if (next === snap.name) return;
+      setSnapshots((prev) => renameSnapshotInList(prev, snap.id, next));
+    });
   }
 
   // ─── Source-rewriting renames (flow / step) ─────────────────────────
@@ -174,10 +216,8 @@ export function PresentationConfigFab<TState = unknown>({
         return;
       }
       if (data.remap && Object.keys(data.remap).length > 0) {
-        // Patch snapshot screenIds BEFORE Vite's reload, so the menu
-        // re-renders with new names + correctly-remapped snapshots.
-        // Functional setState so an in-flight snapshot edit isn't
-        // overwritten by a stale closure.
+        // Patch snapshot screenIds before Vite's hot-reload so the menu
+        // re-renders with new names immediately.
         setSnapshots((prev) => {
           const remapped = remapSnapshotScreenIds(prev, data.remap!);
           saveSnapshots(remapped, snapshotsStorageKey);
@@ -192,19 +232,28 @@ export function PresentationConfigFab<TState = unknown>({
   }
 
   function renameFlowPrompt(flow: string) {
-    const next = window.prompt(`Rename flow "${flow}"`, flow);
-    if (!next || !next.trim() || next.trim() === flow) return;
-    void postRename(
-      "/api/screens/rename-flow",
-      { flow, newFlow: next.trim() },
-      `Renamed flow ${flow} → ${next.trim()}`,
-    );
+    openNamePrompt(`Rename flow "${flow}"`, flow, (next) => {
+      if (next === flow) return;
+      void postRename(
+        "/api/screens/rename-flow",
+        { flow, newFlow: next },
+        `Renamed flow ${flow} → ${next}`,
+      );
+    });
   }
 
-  // ─── Share: copy "optimal export prompt" to clipboard ──────────────
-  // Always available — for both plain steps and snapshots — so a user
-  // can paste a paste-ready prompt into Claude Code (or any agent that
-  // loads this skill) and get the screen / variant exported to Figma.
+  function renameStepPrompt(flow: string, step: string) {
+    openNamePrompt(`Rename step "${step}"`, step, (next) => {
+      if (next === step) return;
+      void postRename(
+        "/api/screens/rename-step",
+        { flow, step, newStep: next },
+        `Renamed step ${flow}/${step} → ${flow}/${next}`,
+      );
+    });
+  }
+
+  // ─── Share / deep-link ──────────────────────────────────────────────
   async function copyExportPrompt(
     flow: string,
     step: string,
@@ -225,14 +274,11 @@ export function PresentationConfigFab<TState = unknown>({
           : `Copied export prompt for ${flow} / ${step}`,
       );
     } catch {
-      // Clipboard API can reject in non-secure contexts; fall back to
-      // window.prompt so the user can copy manually.
+      // Clipboard API can reject in non-secure contexts.
       window.prompt("Copy this prompt:", text);
     }
   }
 
-  // Copy a deep link for the given screen to the clipboard. Preserves the
-  // current ?theme= param (already in the URL) and swaps ?screen= only.
   async function copyLink(screenId: ScreenId) {
     const url = new URL(window.location.href);
     if (screenId === DEFAULT_SCREEN) {
@@ -247,19 +293,6 @@ export function PresentationConfigFab<TState = unknown>({
     }
   }
 
-  function renameStepPrompt(flow: string, step: string) {
-    const next = window.prompt(`Rename step "${step}"`, step);
-    if (!next || !next.trim() || next.trim() === step) return;
-    void postRename(
-      "/api/screens/rename-step",
-      { flow, step, newStep: next.trim() },
-      `Renamed step ${flow}/${step} → ${flow}/${next.trim()}`,
-    );
-  }
-
-  // List every Spring-supported theme. `@ringcentral/spring-theme` ships
-  // four themes total; juno dark is not exported, so it is intentionally
-  // absent. Do not add a fake/aliased "Juno Dark" option.
   const themeItems: { label: string; value: ThemeOption }[] = [
     { label: "Juno Light", value: "junoLight" },
     { label: "Light", value: "light" },
@@ -267,18 +300,10 @@ export function PresentationConfigFab<TState = unknown>({
     { label: "High Contrast", value: "highContrast" },
   ];
 
-  // Flows are derived from `SCREENS` in order of first appearance.
-  // To add a screen: append to SCREENS in `screens.ts` — no edits here.
   const flowGroups = groupScreensByFlow(SCREENS);
 
-  // Inline icon-button rendered next to a label. Hidden until hover/focus
-  // on its parent row (which must carry Tailwind's `group` class). The
-  // `variant` controls the hover background:
-  //   - "header" — used inside MenuHeader rows (no MenuItem white surface),
-  //     so hover uses a subtle neutral fill (`#eef0f3`).
-  //   - "row"    — used inside MenuItem rows (already white on hover via
-  //     Spring), so hover uses `bg-white` to read as a nested affordance.
-  //   - "danger" — like "row" but turns red on hover, for delete.
+  // Hover-revealed icon button used for FAB chrome affordances (rename,
+  // share, copy-link, delete). Parent row must carry Tailwind's `group` class.
   const iconButton = (
     label: string,
     icon: React.ReactNode,
@@ -310,14 +335,9 @@ export function PresentationConfigFab<TState = unknown>({
 
   return (
     <>
-      <div
-        style={{
-          position: "fixed",
-          bottom: 24,
-          right: 24,
-          zIndex: 9999,
-        }}
-      >
+      {/* FAB button — fixed bottom-right. To reposition, edit the `style`
+          on this wrapper div only; leave the IconButton props unchanged. */}
+      <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999 }}>
         <IconButton
           ref={fabRef}
           symbol={SettingsMd}
@@ -328,38 +348,40 @@ export function PresentationConfigFab<TState = unknown>({
           onClick={() => setOpen((prev) => !prev)}
         />
       </div>
+
+      {/* 1st-level FAB menu — placement="top-end" opens the menu above the
+          FAB button, right-edge aligned to the FAB. PopperPaperProps.contentRef
+          captures the Paper's inner content div (fabMenuPaperEl) so 2nd-level
+          submenus can use it as their anchor for bottom-edge alignment.
+          onClose guard prevents Spring's clickaway from collapsing the stack
+          when a 2nd-level submenu opens. */}
       <Menu
         open={open}
         anchorEl={fabRef.current}
         onClose={() => {
-          // Don't tear down the main menu (and with it, the Export
-          // anchor) while the submenu is open — let the submenu's own
-          // onClose handle dismissal. Otherwise Spring's clickaway fires
-          // when the submenu opens and the whole stack collapses.
-          if (!exportOpen && !themeOpen) setOpen(false);
+          if (!exportOpen && !themeOpen) {
+            setOpen(false);
+            setFabMenuPaperEl(null);
+          }
         }}
-        placement="left"
+        placement="top-end"
         PopperProps={{ offset: 8 }}
+        PopperPaperProps={{ contentRef: setFabMenuPaperEl }}
       >
         {/* ─── Customizable area ──────────────────────────────────────
-            Add any project-specific items here — switches, links, etc.
-            They render ABOVE the Theme + Export pair below. The two
-            required, fixed elements at the bottom of the FAB are
-            Theme (2nd-to-last) and Export (last); do not insert any
-            project-specific items between or below them.
+            Add project-specific items here — env switches, role pickers,
+            layout pickers, links to docs, etc. Render ABOVE the Theme +
+            Export pair. Do not insert anything between or below them.
             ──────────────────────────────────────────────────────────── */}
 
         {/* ─── Theme + Export (canonical last two items) ──────────────
-            Per the bridge-skill FAB convention, Theme is ALWAYS the
-            2nd-to-last item and Export is ALWAYS the last item. Each
-            is preceded by its own MenuDivider, and each opens its own
-            2nd-level submenu. Do not insert items between them or
-            below Export.
+            Theme is 2nd-to-last, Export is last; each preceded by a
+            MenuDivider. Do not reorder or insert between them.
             ──────────────────────────────────────────────────────────── */}
         <MenuDivider />
-        {/* Theme — opens a 2nd-level submenu mirroring Export. Keeps the
-            main FAB menu compact regardless of how many themes ship.
-            `autoClose={false}` for the same reason as Export below. */}
+        {/* autoClose={false}: Spring closes the parent menu on MenuItem
+            click by default, which would unmount the anchor before the
+            submenu opens. Both Theme and Export need this. */}
         <MenuItem
           autoClose={false}
           onClick={(e: React.MouseEvent<HTMLElement>) =>
@@ -370,9 +392,6 @@ export function PresentationConfigFab<TState = unknown>({
           <CaretRightMd width={16} height={16} />
         </MenuItem>
         <MenuDivider />
-        {/* `autoClose={false}` is required: Spring `MenuItem` closes
-            its parent Menu by default, which would unmount the Export
-            item and yank the submenu's anchor before it can open. */}
         <MenuItem
           autoClose={false}
           onClick={(e: React.MouseEvent<HTMLElement>) =>
@@ -384,17 +403,27 @@ export function PresentationConfigFab<TState = unknown>({
         </MenuItem>
       </Menu>
 
-      {/* 2nd-level Export submenu: lists every screen, grouped by flow.
-          When `screenStateAdapter` is supplied, snapshots render
-          inline-indented under each step and the current step gets a
-          "+ Snapshot" affordance. When `enableRename` is true, pencil
-          icons appear on hover for flows / steps / snapshots. */}
+      {/* 2nd-level Export submenu.
+          Anchored to fabMenuPaperEl (the 1st menu's Paper content div) rather
+          than the Export MenuItem, so both menus share the same bottom edge.
+          placement="left-end" pins the bottoms; the top extends upward as
+          snapshots are added. maxHeight + overflowY bound the height to the
+          viewport. The reflow useEffect above keeps Popper's position current
+          as snapshot count changes. */}
       <Menu
         open={exportOpen}
-        anchorEl={exportAnchor}
+        anchorEl={fabMenuPaperEl ?? exportAnchor}
         onClose={() => setExportAnchor(null)}
-        placement="left-start"
+        placement="left-end"
         PopperProps={{ offset: 8 }}
+        PopperPaperProps={{
+          style: {
+            width: "fit-content",
+            minWidth: 0,
+            maxHeight: "calc(100vh - 32px)",
+            overflowY: "auto",
+          },
+        }}
       >
         {flowGroups.map((group, idx) => (
           <Fragment key={group.flow}>
@@ -416,10 +445,6 @@ export function PresentationConfigFab<TState = unknown>({
             {group.steps.map((s) => {
               const isCurrent = screen === s.id;
               const stepSnapshots = snapshotsByScreen.get(s.id) ?? [];
-              // The parent step is "selected" only when the user is on
-              // its screen AND no snapshot of it matches the live state
-              // (i.e. they're viewing the plain code screen, not one
-              // of its saved variants).
               const stepSelected = isCurrent && appliedSnapshotId === null;
               return (
                 <Fragment key={s.id}>
@@ -431,11 +456,9 @@ export function PresentationConfigFab<TState = unknown>({
                         setScreen(s.id as ScreenId);
                         closeAll();
                       } else if (screenStateAdapter?.reset) {
-                        // Already on this screen — clicking the parent
-                        // step means "go back to the pristine code state
-                        // of this screen". Makes the parent feel like
-                        // a restore point and snapshots feel like saved
-                        // variants of it.
+                        // Already on this screen — clicking the parent step
+                        // resets to the pristine code state (adapter.reset).
+                        // Makes the parent feel like a restore point.
                         screenStateAdapter.reset();
                         closeAll();
                       } else {
@@ -469,8 +492,7 @@ export function PresentationConfigFab<TState = unknown>({
                         () => renameStepPrompt(group.flow, s.step),
                       )}
                   </MenuItem>
-                  {/* Snapshots — inline indented, NOT a 3rd-level
-                      Spring submenu. */}
+                  {/* Snapshots — inline indented under their parent step. */}
                   {screenStateAdapter &&
                     stepSnapshots.map((snap) => (
                       <MenuItem
@@ -507,9 +529,7 @@ export function PresentationConfigFab<TState = unknown>({
                         )}
                       </MenuItem>
                     ))}
-                  {/* "+ Snapshot" affordance — only on the current
-                      screen's step, since saving any other step's
-                      state isn't possible from here. */}
+                  {/* "+ Snapshot" — only on the current screen's step. */}
                   {screenStateAdapter && isCurrent && (
                     <MenuItem
                       onClick={() => {
@@ -538,15 +558,21 @@ export function PresentationConfigFab<TState = unknown>({
         ))}
       </Menu>
 
-      {/* 2nd-level Theme submenu: lists every Spring-supported theme.
-          Mirrors the Export submenu pattern so the main FAB menu stays
-          compact regardless of how many themes ship. */}
+      {/* 2nd-level Theme submenu — same Paper-anchor + left-end pattern. */}
       <Menu
         open={themeOpen}
-        anchorEl={themeAnchor}
+        anchorEl={fabMenuPaperEl ?? themeAnchor}
         onClose={() => setThemeAnchor(null)}
-        placement="left-start"
+        placement="left-end"
         PopperProps={{ offset: 8 }}
+        PopperPaperProps={{
+          style: {
+            width: "fit-content",
+            minWidth: 0,
+            maxHeight: "calc(100vh - 32px)",
+            overflowY: "auto",
+          },
+        }}
       >
         {themeItems.map((item) => (
           <MenuItem
@@ -561,6 +587,80 @@ export function PresentationConfigFab<TState = unknown>({
           </MenuItem>
         ))}
       </Menu>
+
+      {/* Inline name-prompt — shown for snapshot capture/rename and
+          flow/step source renames. Renders above all menus (zIndex 10001).
+          Click the backdrop or press Escape to cancel. */}
+      {namePrompt && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={namePrompt.title}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 10001,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.3)",
+          }}
+          onClick={() => setNamePrompt(null)}
+        >
+          <div
+            style={{
+              background: "white",
+              borderRadius: 12,
+              padding: 24,
+              minWidth: 320,
+              maxWidth: 480,
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="typography-subtitle text-neutral-b0">
+              {namePrompt.title}
+            </p>
+            <TextField
+              label=""
+              value={namePromptValue}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setNamePromptValue(e.target.value)
+              }
+              size="large"
+              onKeyDown={(e: React.KeyboardEvent) => {
+                if (e.key === "Enter") confirmNamePrompt();
+                if (e.key === "Escape") setNamePrompt(null);
+              }}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              data-test-automation-id="fab-name-prompt-input"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outlined"
+                color="neutral"
+                size="medium"
+                onClick={() => setNamePrompt(null)}
+                data-test-automation-id="fab-name-prompt-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                size="medium"
+                onClick={confirmNamePrompt}
+                data-test-automation-id="fab-name-prompt-confirm"
+              >
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

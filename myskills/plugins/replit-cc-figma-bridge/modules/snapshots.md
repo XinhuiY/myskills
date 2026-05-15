@@ -1,10 +1,12 @@
-# Snapshots (optional add-on)
+# Snapshots
 
 A **snapshot** is a captured-state variant of a code-defined screen. It is NOT a new screen in the bridge sense (no `.tsx` file, no `SCREENS` row, no Figma frame); it's a user-saved overlay on top of an existing step. Snapshots render as inline indented children of their parent step in the FAB Export submenu and are addressed as `<Flow>/<Step>/<Snapshot name>`.
 
 Mental model: **the parent step is the pristine code state. Each snapshot below it is a saved variant.** Clicking the parent step while already on its screen resets to defaults — the parent is its own restore point.
 
 Persists to `localStorage` (this browser only). No backend required. For in-app rename of flows / steps (which does require a backend), see `modules/rename-in-app.md`.
+
+**Default behavior:** the adapter is wired as part of the standard screen-picker install (Operation 1, step 4b) whenever the host component owns replayable state — form fields, toggles, selections, nav order, expanded sections, etc. Pass no `screenStateAdapter` only when every screen is pure / stateless. The steps below are the same wiring the install procedure runs; consult them for the canonical patterns and edge cases.
 
 ## FAB props
 
@@ -13,7 +15,7 @@ Once installed, the FAB exposes a small surface of opt-in props. All are optiona
 | Prop | Type | Effect |
 | ---- | ---- | ------ |
 | `screenStateAdapter` | `ScreenStateAdapter<TState>` | Enables snapshots (capture, apply, "selected" indicator on the matching step / variant). Without it, no snapshot affordances render. |
-| `enableRename` | `boolean` (default `false`) | Enables pencil-icon rename affordances. See `modules/rename-in-app.md`. |
+| `enableRename` | `boolean` (default `true`) | Enables pencil-icon rename affordances. Pass `false` for published demos where the rename endpoints aren't mounted. See `modules/rename-in-app.md`. |
 | `snapshotsStorageKey` | `string` (default `"fab-snapshots-v1"`) | Override the localStorage key — useful for namespacing per artifact. |
 
 The adapter contract itself is similarly small:
@@ -28,11 +30,66 @@ The adapter contract itself is similarly small:
 
 Share buttons themselves are always on — they work on plain steps with no adapter at all. See `modules/screen-picker.md` "Share affordance" for the plain-step behavior.
 
-## Install
+## Wiring during screen-picker install
 
-1. Copy `templates/snapshots.ts` → `<artifact>/src/presentation-config/snapshots.ts` (already done if you copied the whole `templates/` directory during install).
+### Step 0 — Make the state snapshot-able (do this before anything else)
 
-2. Define what your app considers replayable state, then implement `ScreenStateAdapter<TState>`:
+The adapter's `capture()` and `apply()` run inside `PresentationConfigFab`, which sits *alongside* your screen components in the tree — not inside them. **Local `useState` inside a screen component is invisible to the adapter.** Any state you want to capture must be lifted to a scope the FAB can also reach.
+
+The simplest fix for most demos — **move the state one level up into `ThemedApp`** and pass it down as props:
+
+```tsx
+// ThemedApp owns the replayable state, passes it to both the screen and the adapter.
+function ThemedApp() {
+  const { themeObject } = usePresentationConfig();
+
+  // Lifted from inside the screen component:
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const adapter: ScreenStateAdapter<{ email: string; password: string }> = {
+    capture: () => ({ email, password }),
+    apply:   (s) => { setEmail(s.email); setPassword(s.password); },
+    matches: (s) => s.email === email && s.password === password,
+    reset:   () => { setEmail(""); setPassword(""); },
+  };
+
+  return (
+    <ThemeProvider theme={themeObject}>
+      <Home email={email} setEmail={setEmail}
+            password={password} setPassword={setPassword} />
+      <PresentationConfigFab screenStateAdapter={adapter} />
+    </ThemeProvider>
+  );
+}
+```
+
+The screen component receives the values as props instead of owning them:
+
+```tsx
+// Before — local state, invisible to adapter:
+function Home() {
+  const [email, setEmail] = useState("");
+  ...
+}
+
+// After — receives state as props from ThemedApp:
+function Home({ email, setEmail, password, setPassword }: SignInProps) {
+  ...
+}
+```
+
+**When to use a context instead:** if the replayable state is needed by deeply nested components (more than 2–3 prop-drilling hops) or by multiple sibling subtrees, lift it into a dedicated context provider (`SignInStateProvider`, `DemoStateProvider`, etc.) that wraps both the screen and the FAB. The adapter reads/writes the context via a hook. This adds one provider but removes prop-drilling.
+
+---
+
+### Step 1 — Copy `snapshots.ts`
+
+Copy `templates/snapshots.ts` → `<artifact>/src/presentation-config/snapshots.ts` (already done if you copied the whole `templates/` directory during install).
+
+### Step 2 — Implement the adapter
+
+Define what your app considers replayable state, then implement `ScreenStateAdapter<TState>`:
 
    ```tsx
    // src/presentation-config/screenStateAdapter.ts
@@ -57,7 +114,7 @@ Share buttons themselves are always on — they work on plain steps with no adap
    }
    ```
 
-3. Pass the adapter into the FAB:
+### Step 3 — Pass the adapter into the FAB
 
    ```tsx
    function ThemedApp() {
